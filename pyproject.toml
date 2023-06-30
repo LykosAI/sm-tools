@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "sm-tools"
+version = "0.1.0"
+description = ""
+authors = ["Ionite <dev@ionite.io>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+typer = {extras = ["all"], version = "^0.9.0"}
+pydantic = {extras = ["dotenv"], version = "^2.0"}
+semver = "^3.0.1"
+httpx = "^0.24.1"
+b2sdk = "^1.21.0"
+python-dotenv = "^1.0.0"
+
+[tool.poetry.scripts]
+sm-tools = "sm_tools.main:app"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
