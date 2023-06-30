@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from sm_tools.models.settings import env
-from sm_tools.progress import RichProgressListener
-from sm_tools.uploader import Uploader
+from stability_matrix_tools.models.settings import env
+from stability_matrix_tools.progress import RichProgressListener
+from stability_matrix_tools.uploader import Uploader
 
 from pathlib import Path
 from urllib.parse import urljoin

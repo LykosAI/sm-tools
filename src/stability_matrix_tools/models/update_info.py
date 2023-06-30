@@ -1,7 +1,7 @@
 from enum import Enum, Flag
 from datetime import datetime
 
-from sm_tools.models.version import Version
+from stability_matrix_tools.models.version import Version
 
 from pydantic import BaseModel, ConfigDict, RootModel
 

@@ -1,4 +1,4 @@
-from sm_tools import updates, b2
+from stability_matrix_tools import updates, b2
 import typer
 
 app = typer.Typer()

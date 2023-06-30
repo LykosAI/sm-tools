@@ -1,6 +1,6 @@
 """Manages automatic updates"""
-from sm_tools.models.update_info import Updates
-from sm_tools.models.settings import env
+from stability_matrix_tools.models.update_info import Updates
+from stability_matrix_tools.models.settings import env
 
 import typer
 import httpx
