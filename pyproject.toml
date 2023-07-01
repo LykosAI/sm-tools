@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "stability-matrix-tools"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = ["Ionite <dev@ionite.io>"]
 readme = "README.md"
@@ -13,9 +13,10 @@ semver = "^3.0.1"
 httpx = "^0.24.1"
 b2sdk = "^1.21.0"
 python-dotenv = "^1.0.0"
+cryptography = "^41.0.1"
 
 [tool.poetry.scripts]
-sm-tools = "sm_tools.main:app"
+sm-tools = "stability_matrix_tools.main:app"
 
 [build-system]
 requires = ["poetry-core"]
