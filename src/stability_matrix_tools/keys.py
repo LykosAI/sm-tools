@@ -1,8 +1,12 @@
 """Keys and signing."""
+import base64
+from typing import Annotated
+
 from stability_matrix_tools.utils import signing
 
 import typer
 import pyperclip
+from typer import Option
 from rich import print as cp
 
 app = typer.Typer()
@@ -57,3 +61,45 @@ def get_public():
     pyperclip.copy(ssh_pub_key)
     cp(ssh_pub_key)
     cp("✅  Public key copied to clipboard.")
+
+
+@app.command()
+def sign(message: str):
+    """Sign a message with the current private key. Produces base64 signature."""
+    private_key = signing.get_private_key_keyring()
+    if not private_key:
+        cp("❌  Private key not found.")
+        raise SystemExit(1)
+
+    signature = private_key.sign(message.encode("utf-8"))
+    b64_signature = base64.b64encode(signature).decode("utf-8")
+
+    cp(b64_signature)
+    pyperclip.copy(b64_signature)
+    cp("✅  Signature copied to clipboard.")
+
+
+@app.command()
+def verify(message: str, signature: str, public_key: Annotated[str, Option("--key")] = None):
+    """
+    Verify a message with the current public key. Expects base64 signature.
+    Optionally supply a different public key to use.
+    """
+    public_key = public_key or signing.get_public_key_keyring()
+    if not public_key:
+        cp("❌  Public key not found.")
+        raise SystemExit(1)
+
+    try:
+        signature = base64.b64decode(signature)
+    except Exception as e:
+        cp(f"❌  Signature is not valid base64: {e}")
+        raise SystemExit(1)
+
+    try:
+        public_key.verify(signature, message.encode("utf-8"))
+    except Exception as e:
+        cp(f"❌  Signature verification failed.")
+        raise SystemExit(1)
+    else:
+        cp("✅  Signature verified.")
