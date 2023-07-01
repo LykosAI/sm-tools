@@ -14,6 +14,8 @@ httpx = "^0.24.1"
 b2sdk = "^1.21.0"
 python-dotenv = "^1.0.0"
 cryptography = "^41.0.1"
+keyring = "^24.2.0"
+pyperclip = "^1.8.2"
 
 [tool.poetry.scripts]
 sm-tools = "stability_matrix_tools.main:app"
