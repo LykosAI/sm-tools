@@ -3,7 +3,8 @@ from datetime import datetime
 
 from stability_matrix_tools.models.version import Version
 
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic.types import NaiveDatetime
 
 
 def to_camel(string: str) -> str:
@@ -27,18 +28,15 @@ class UpdateType(Flag, boundary="keep"):
 
 
 class UpdateInfo(BaseModel):
-    model_config = ConfigDict(alias_generator=to_camel, arbitrary_types_allowed=True)
-
-    version: Version
-    release_date: datetime
+    version: str
+    release_date: NaiveDatetime
     channel: UpdateChannel
     url: str
     changelog: str
     signature: str | None
     type: UpdateType | None
 
+    class Config:
+        alias_generator = to_camel
+        arbitrary_types_allowed = True
 
-class Updates(RootModel):
-    model_config = ConfigDict(alias_generator=to_camel)
-
-    root: list[UpdateInfo]

@@ -12,6 +12,9 @@ class EnvSettings(BaseSettings):
     b2_api_key: str
     b2_bucket_name: str = "lykos-1"
 
+    cf_zone_id: str
+    cf_cache_purge_token: str
+
     # debug
     verbose: bool = False
 

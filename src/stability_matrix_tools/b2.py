@@ -3,6 +3,7 @@ from __future__ import annotations
 from stability_matrix_tools.models.settings import env
 from stability_matrix_tools.utils.progress import RichProgressListener
 from stability_matrix_tools.utils.uploader import Uploader
+from stability_matrix_tools.utils.cf_cache import cache_purge
 
 from pathlib import Path
 from urllib.parse import urljoin
@@ -54,6 +55,9 @@ def upload(file_path: Path, b2_path: str, confirm: ConfirmType = False):
     with RichProgressListener("Uploading...", transient=True) as pbar:
         uploader.upload(str(file), b2_path, pbar)
 
+    typer.echo("Updating Cloudflare cache...")
+    cache_purge(urljoin(env.cdn_root, b2_path))
+
     result = urljoin(env.cdn_root, b2_path)
     typer.echo(f"✅  Uploaded at: {result!r}")
 
@@ -73,6 +77,9 @@ def delete(b2_path: str):
     assert_exists(file, msg="File not found in B2 bucket")
 
     uploader.delete_file(file)
+
+    typer.echo("Updating Cloudflare cache...")
+    cache_purge(urljoin(env.cdn_root, b2_path))
 
     typer.echo(f"🗑️  Deleted {b2_path!r}")
 
