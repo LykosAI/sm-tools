@@ -1,8 +1,8 @@
 from enum import Enum, Flag
 from datetime import datetime
-from typing import Annotated
+from typing_extensions import Annotated
 
-from pydantic import BaseModel, field_validator, ValidationError, WrapValidator
+from pydantic import BaseModel, ValidationError, WrapValidator
 from pydantic.types import AwareDatetime
 
 
@@ -18,6 +18,8 @@ def validate_timestamp(value, handler):
     try:
         return handler(value)
     except ValidationError:
+        if isinstance(value, datetime):
+            return value
         return datetime.fromisoformat(value[0])
 
 
@@ -31,7 +33,7 @@ class UpdateChannel(Enum):
 
 
 class UpdateType(Flag):
-    normal = 0 << 1
+    normal = 1 << 0
     critical = 1 << 1
     mandatory = 1 << 2
 
@@ -40,17 +42,11 @@ class UpdateInfo(BaseModel):
     version: str
     release_date: DateTimeOffset
     channel: UpdateChannel
+    type: UpdateType
     url: str
     changelog: str
-    signature: str | None = None
-    type: UpdateType | None = None
-
-    # noinspection PyMethodParameters
-    @field_validator('release_date', 'release_date', mode='before')
-    def split_str(cls, v):
-        if isinstance(v, str):
-            return v.split('|')
-        return v
+    hash_blake3: str
+    signature: str
 
     class Config:
         alias_generator = to_camel

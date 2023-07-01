@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import b2sdk.exception as b2_exception
 import b2sdk.file_version
@@ -33,12 +34,12 @@ class Uploader:
 
     def upload(
         self,
-        file_path: str,
+        file_path: str | Path,
         b2_path: str,
         progress_listener: AbstractProgressListener | None = None,
     ):
         """Uploads a file to the B2 bucket."""
-        file_name = os.path.basename(file_path)
+        file_name = os.path.basename(str(file_path))
         base_name, ext = os.path.splitext(file_name)
 
         # Upload the file

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "stability-matrix-tools"
-version = "0.1.6"
+version = "0.1.7"
 description = ""
 authors = ["Ionite <dev@ionite.io>"]
 readme = "README.md"
@@ -16,6 +16,7 @@ python-dotenv = "^1.0.0"
 cryptography = "^41.0.1"
 keyring = "^24.2.0"
 pyperclip = "^1.8.2"
+blake3 = "^0.3.3"
 
 [tool.poetry.scripts]
 sm-tools = "stability_matrix_tools.main:app"
