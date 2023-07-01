@@ -30,7 +30,7 @@ class UpdateChannel(Enum):
     development = "development"
 
 
-class UpdateType(Flag, boundary="keep"):
+class UpdateType(Flag):
     normal = 0 << 1
     critical = 1 << 1
     mandatory = 1 << 2
