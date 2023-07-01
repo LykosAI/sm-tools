@@ -12,6 +12,9 @@ class EnvSettings(BaseSettings):
     b2_api_key: str
     b2_bucket_name: str = "lykos-1"
 
+    # debug
+    verbose: bool = False
+
     class Config:
         env_file = dotenv.find_dotenv(usecwd=True)
         env_prefix = "sm_"
