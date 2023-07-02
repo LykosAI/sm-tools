@@ -151,7 +151,7 @@ def publish_manual(
     )
 
     # Print and ask for confirmation
-    json = info.model_dump_json(indent=4)
+    json = info.model_dump_json(indent=4, by_alias=True)
     cp(f"Update Info JSON: {json}")
 
     if not typer.confirm("Publish update?"):
