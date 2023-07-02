@@ -1,8 +1,8 @@
 from enum import Enum, Flag
-from datetime import datetime
+from datetime import datetime, timezone
 from typing_extensions import Annotated
 
-from pydantic import BaseModel, ValidationError, WrapValidator
+from pydantic import BaseModel, ValidationError, WrapValidator, Field, field_serializer
 from pydantic.types import AwareDatetime
 
 
@@ -20,7 +20,7 @@ def validate_timestamp(value, handler):
     except ValidationError:
         if isinstance(value, datetime):
             return value
-        return datetime.fromisoformat(value[0])
+        return datetime.fromisoformat(value[0]).replace(tzinfo=timezone.utc)
 
 
 DateTimeOffset = Annotated[AwareDatetime, WrapValidator(validate_timestamp)]
@@ -40,14 +40,17 @@ class UpdateType(Flag):
 
 class UpdateInfo(BaseModel):
     version: str
-    release_date: DateTimeOffset
+    release_date: DateTimeOffset = Field(alias="releaseDate")
     channel: UpdateChannel
     type: UpdateType
     url: str
     changelog: str
-    hash_blake3: str
+    hash_blake3: str = Field(alias="hashBlake3")
     signature: str
 
+    @field_serializer("release_date")
+    def serialize_dt(self, dt: datetime, _info):
+        return dt.replace(tzinfo=timezone.utc).isoformat()
+
     class Config:
-        alias_generator = to_camel
         arbitrary_types_allowed = True
