@@ -25,6 +25,14 @@ def public_key_to_ssh(public_key: Ed25519PublicKey) -> str:
     return key_bytes.decode("utf-8")
 
 
+def public_key_to_bytes(public_key: Ed25519PublicKey) -> bytes:
+    key_bytes = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    return key_bytes
+
+
 def ssh_to_key(key: str) -> Ed25519PrivateKey:
     key_bytes = key.encode("utf-8")
     return serialization.load_ssh_private_key(key_bytes, None)

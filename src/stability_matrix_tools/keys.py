@@ -50,16 +50,23 @@ def get_private():
 
 
 @app.command()
-def get_public():
+def get_public(key_format: Annotated[str, Option("--format")] = "openssh"):
     """Loads current public key to clipboard."""
     public_key = signing.get_public_key_keyring()
     if not public_key:
         cp("❌  Private key not found.")
         raise SystemExit(1)
 
-    ssh_pub_key = signing.public_key_to_ssh(public_key)
-    pyperclip.copy(ssh_pub_key)
-    cp(ssh_pub_key)
+    if key_format == "openssh":
+        pub_key = signing.public_key_to_ssh(public_key)
+    elif key_format == "b64":
+        pub_key_bytes = signing.public_key_to_bytes(public_key)
+        pub_key = base64.b64encode(pub_key_bytes).decode("utf-8")
+    else:
+        cp("❌  Invalid key format.")
+        raise SystemExit(1)
+    pyperclip.copy(pub_key)
+    cp(pub_key)
     cp("✅  Public key copied to clipboard.")
 
 

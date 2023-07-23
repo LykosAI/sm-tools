@@ -54,3 +54,9 @@ class UpdateInfo(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+
+class UpdateCollection(BaseModel):
+    win_x64: UpdateInfo | None = Field(alias="win-x64", default=None)
+    linux_x64: UpdateInfo | None = Field(alias="linux-x64", default=None)
+
