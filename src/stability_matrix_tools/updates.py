@@ -149,11 +149,11 @@ def publish_manual(
     current_collection: UpdateCollection | None = None
 
     try:
-        url = urljoin(env.cdn_root, b2_path)
-        response = httpx.get(url, headers={"Cache-Control": "no-cache"})
+        current_manifest_url = urljoin(env.cdn_root, b2_path)
+        response = httpx.get(current_manifest_url, headers={"Cache-Control": "no-cache"})
         response.raise_for_status()
 
-        cp(f"✅  {url!r} -> ({response.status_code})")
+        cp(f"✅  {current_manifest_url!r} -> ({response.status_code})")
 
         current_collection = UpdateCollection.model_validate_json(response.text)
     except HTTPStatusError as e:
