@@ -87,7 +87,9 @@ def sign(message: str):
 
 
 @app.command()
-def verify(message: str, signature: str, public_key: Annotated[str, Option("--key")] = None):
+def verify(
+    message: str, signature: str, public_key: Annotated[str, Option("--key")] = None
+):
     """
     Verify a message with the current public key. Expects base64 signature.
     Optionally supply a different public key to use.

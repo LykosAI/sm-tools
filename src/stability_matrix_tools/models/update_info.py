@@ -1,3 +1,4 @@
+from __future__ import annotations
 from enum import Enum, Flag
 from datetime import datetime, timezone
 from typing_extensions import Annotated
@@ -27,15 +28,32 @@ DateTimeOffset = Annotated[AwareDatetime, WrapValidator(validate_timestamp)]
 
 
 class UpdateChannel(Enum):
-    stable = "stable"
-    preview = "preview"
-    development = "development"
+    STABLE = "stable"
+    PREVIEW = "preview"
+    DEVELOPMENT = "development"
 
 
 class UpdateType(Flag):
-    normal = 1 << 0
-    critical = 1 << 1
-    mandatory = 1 << 2
+    NORMAL = 1 << 0
+    CRITICAL = 1 << 1
+    MANDATORY = 1 << 2
+
+    @classmethod
+    def parse(cls, value: str) -> UpdateType:
+        """Parse a string into an UpdateType."""
+        result = cls(0)
+
+        if "normal" in value:
+            result |= cls.NORMAL
+        if "critical" in value:
+            result |= cls.CRITICAL
+        if "mandatory" in value:
+            result |= cls.MANDATORY
+
+        if not result:
+            raise ValueError(f"Unknown update type: {value!r}")
+
+        return result
 
 
 class UpdateInfo(BaseModel):
@@ -59,4 +77,3 @@ class UpdateInfo(BaseModel):
 class UpdateCollection(BaseModel):
     win_x64: UpdateInfo | None = Field(alias="win-x64", default=None)
     linux_x64: UpdateInfo | None = Field(alias="linux-x64", default=None)
-

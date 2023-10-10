@@ -15,9 +15,7 @@ class Uploader:
         info = InMemoryAccountInfo()
         self.api = B2Api(info)
         try:
-            self.api.authorize_account(
-                "production", api_id, api_key
-            )
+            self.api.authorize_account("production", api_id, api_key)
         except b2_exception.B2Error as e:
             raise RuntimeError(f"Could not connect to B2: {e}")
 

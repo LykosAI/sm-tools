@@ -82,4 +82,3 @@ def delete(b2_path: str):
     cache_purge(urljoin(env.cdn_root, b2_path))
 
     typer.echo(f"🗑️  Deleted {b2_path!r}")
-
