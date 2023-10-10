@@ -92,6 +92,7 @@ def publish(
     update_type: Annotated[UpdateType, typer.Option("--type")] = 1,
     b2_path: Annotated[str, typer.Option("--b2-path")] = "update-v2.json",
     confirm: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ):
     """Publishes an update"""
     validate_platform(platform)
@@ -124,6 +125,7 @@ def publish(
         update_type=update_type,
         b2_path=b2_path,
         confirm=confirm,
+        dry_run=dry_run,
     )
 
 
@@ -137,7 +139,8 @@ def publish_manual(
     channel: str = "stable",
     update_type: UpdateType = 1,
     b2_path: str = "update-v2.json",
-    confirm: bool = typer.Option(True, "--yes", "-y"),
+    confirm: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
 ):
     """Publishes an update"""
 
@@ -206,7 +209,7 @@ def publish_manual(
     json = current_collection.model_dump_json(indent=4, by_alias=True)
     cp(f"Update Info JSON: {json}")
 
-    if not confirm and not typer.confirm("Publish update?"):
+    if dry_run or (not confirm and not typer.confirm("Publish update?")):
         raise typer.Abort()
 
     # Save json to a temporary file
