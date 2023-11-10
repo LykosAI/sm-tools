@@ -17,6 +17,7 @@ cryptography = "^41.0.4"
 keyring = "^24.2.0"
 pyperclip = "^1.8.2"
 blake3 = "^0.3.3"
+pygithub = "^2.1.1"
 
 [tool.poetry.scripts]
 sm-tools = "stability_matrix_tools.main:app"
