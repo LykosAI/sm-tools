@@ -27,7 +27,7 @@ from stability_matrix_tools.utils.cf_cache import cache_purge
 from stability_matrix_tools.utils.progress import RichProgressListener
 from stability_matrix_tools.utils.uploader import Uploader
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 
 def info_sign_data(info: UpdateInfo) -> str:

@@ -17,7 +17,7 @@ P = ParamSpec("P")
 
 ConfirmType = Annotated[bool, Option("--yes", "-y", help="Confirm action")]
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 
 def assert_exists(*target: T, msg: str) -> T:

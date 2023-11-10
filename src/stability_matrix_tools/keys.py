@@ -9,7 +9,7 @@ import pyperclip
 from typer import Option
 from rich import print as cp
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 
 @app.command()
