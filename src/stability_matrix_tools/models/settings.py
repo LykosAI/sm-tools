@@ -15,6 +15,11 @@ class EnvSettings(BaseSettings):
     cf_zone_id: str
     cf_cache_purge_token: str
 
+    # git repos
+    git_repo_private: str = "https://github.com/ionite34/StabilityMatrix"
+    git_repo_fork: str = "https://github.com/LykosAI/StabilityMatrix-Dev"
+    git_repo_public: str = "https://github.com/LykosAI/StabilityMatrix"
+
     # debug
     verbose: bool = False
 
