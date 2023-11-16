@@ -7,14 +7,6 @@ from pydantic import BaseModel, ValidationError, WrapValidator, Field, field_ser
 from pydantic.types import AwareDatetime
 
 
-def to_camel(string: str) -> str:
-    """Convert to camel case."""
-    string = "".join(word.capitalize() for word in string.split("_"))
-    if string and string[0].isupper():
-        string = string[0].lower() + string[1:]
-    return string
-
-
 def validate_timestamp(value, handler):
     try:
         return handler(value)
