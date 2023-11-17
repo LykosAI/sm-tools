@@ -11,6 +11,7 @@ class EnvSettings(BaseSettings):
     b2_api_id: str
     b2_api_key: str
     b2_bucket_name: str = "lykos-1"
+    b2_bucket_secure_name: str = "lykos-s1"
 
     cf_zone_id: str
     cf_cache_purge_token: str
@@ -19,6 +20,9 @@ class EnvSettings(BaseSettings):
     git_repo_private: str = "https://github.com/ionite34/StabilityMatrix"
     git_repo_fork: str = "https://github.com/LykosAI/StabilityMatrix-Dev"
     git_repo_public: str = "https://github.com/LykosAI/StabilityMatrix"
+
+    # override signing key
+    signing_private_key: str | None = None
 
     # debug
     verbose: bool = False

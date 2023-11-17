@@ -6,6 +6,17 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from stability_matrix_tools.models.settings import env
+
+
+def get_private_key_from_env() -> Ed25519PrivateKey | None:
+    """Get the private key from the environment if it exists."""
+    key = env.signing_private_key
+    if key is None:
+        return None
+
+    return ssh_to_key(key)
+
 
 def generate_private_key() -> Ed25519PrivateKey:
     return Ed25519PrivateKey.generate()
@@ -43,6 +54,10 @@ def ssh_to_key(key: str) -> Ed25519PrivateKey:
 
 def get_private_key_keyring() -> Ed25519PrivateKey | None:
     """Get the private key from the keyring."""
+    env_key = get_private_key_from_env()
+    if env_key is not None:
+        return env_key
+
     key_bytes = keyring.get_password("sm-tools", "private-key")
     if key_bytes is None:
         return None
@@ -64,7 +79,3 @@ def get_public_key_keyring() -> Ed25519PublicKey | None:
     if private_key is None:
         return None
     return private_key.public_key()
-
-
-def verify_signature(public_key, signature):
-    ...
