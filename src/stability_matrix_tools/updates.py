@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 
 from httpx import HTTPStatusError
 
+from stability_matrix_tools import b2
 from stability_matrix_tools.models.update_base import UpdateChannel
 from stability_matrix_tools.models.update_info import (
     UpdateInfo,
@@ -271,6 +272,9 @@ def publish_platforms_v3(
     }
     cp(f"platforms: {platforms}")
 
+    if not win_x64[0] and not linux_x64[0]:
+        raise ValueError("No platforms specified")
+
     update_type = UpdateType.parse(update_type_value)
     channel = UpdateChannel(channel_value)
 
@@ -295,7 +299,9 @@ def publish_platforms_v3(
         if update_url is None:
             continue
         if update_hash is None:
-            raise ValueError(f"Missing hash for {platform_id}: {platforms[platform_id]}")
+            raise ValueError(
+                f"Missing hash for {platform_id}: {platforms[platform_id]}"
+            )
 
         info = UpdateInfo(
             version=version,
@@ -316,7 +322,9 @@ def publish_platforms_v3(
     # Show replacement changes
     if channel in current_manifest.updates:
         cp(f"Removed for {channel}:")
-        print_json(current_manifest.updates[channel].model_dump_json(indent=2, by_alias=True))
+        print_json(
+            current_manifest.updates[channel].model_dump_json(indent=2, by_alias=True)
+        )
 
     cp(f"Added for {channel}:")
     print_json(new_platforms.model_dump_json(indent=2, by_alias=True))
@@ -328,13 +336,88 @@ def publish_platforms_v3(
     cp(f"Update Manifest Diff:")
     print_diff(
         current_manifest.model_dump_json(indent=2, by_alias=True),
-        new_manifest.model_dump_json(indent=2, by_alias=True)
+        new_manifest.model_dump_json(indent=2, by_alias=True),
     )
 
     if dry_run or (not confirm and not typer.confirm(f"Publish update to {b2_path}?")):
         raise typer.Abort()
 
     upload_json(new_manifest.model_dump_json(indent=2, by_alias=True), b2_path)
+
+
+@app.command(no_args_is_help=True)
+def publish_files_v3(
+    version: Annotated[str, typer.Option("--version", "-v")],
+    changelog: Annotated[
+        Path, typer.Option("--changelog", help="File path to changelog")
+    ],
+    channel_value: Annotated[str, typer.Option("--channel")] = "stable",
+    update_type_value: Annotated[str, typer.Option("--type")] = "normal",
+    win_x64: Annotated[
+        Optional[Path], typer.Option("--win-x64", help="File path to win-x64 update")
+    ] = None,
+    linux_x64: Annotated[
+        Optional[Path],
+        typer.Option("--linux-x64", help="File path to linux-x64 update"),
+    ] = None,
+    b2_bucket_name: Annotated[str, typer.Option("--b2-bucket-name")] = "lykos-s1",
+    b2_manifest_path: Annotated[
+        str, typer.Option("--b2-manifest-path")
+    ] = "update-v3.json",
+    confirm: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+):
+    """Publishes a v3 update with files"""
+
+    platforms = {
+        "win-x64": win_x64,
+        "linux-x64": linux_x64,
+    }
+    cp(f"platforms: {platforms}")
+
+    if not (win_x64 and linux_x64):
+        raise ValueError("Platforms win_x64 and linux_x64 are required")
+
+    base_url = urljoin(env.cdn_root, "s1")
+
+    hash_win_x64 = blake3_hash_file(win_x64)
+    cp(f"win-x64 hash: {hash_win_x64}")
+    hash_linux_x64 = blake3_hash_file(linux_x64)
+    cp(f"linux-x64 hash: {hash_linux_x64}")
+
+    # default path is
+    # /sm/v{version}/CHANGELOG.md
+    # /sm/v{version}/StabilityMatrix-{platform}.zip
+
+    b2.upload(changelog, f"/sm/v{version}/{changelog.name}", b2_bucket_name)
+    b2.upload(win_x64, f"/sm/v{version}/{win_x64.name}", b2_bucket_name)
+    b2.upload(linux_x64, f"/sm/v{version}/{linux_x64.name}", b2_bucket_name)
+
+    try:
+        publish_platforms_v3(
+            version=version,
+            changelog=urljoin(base_url, f"/sm/v{version}/{changelog.name}"),
+            channel_value=channel_value,
+            update_type_value=update_type_value,
+            win_x64=(urljoin(base_url, f"/sm/v{version}/{win_x64.name}"), hash_win_x64),
+            linux_x64=(
+                urljoin(base_url, f"/sm/v{version}/{linux_x64.name}"),
+                hash_linux_x64,
+            ),
+            b2_path=b2_manifest_path,
+            confirm=confirm,
+            dry_run=dry_run,
+        )
+    except Exception as e:
+        cp(f"❌  Error: {e}")
+        cp("Cleaning up...")
+
+        # Delete files
+        b2.delete(f"/sm/v{version}/{changelog.name}", b2_bucket_name)
+        b2.delete(f"/sm/v{version}/{win_x64.name}", b2_bucket_name)
+        b2.delete(f"/sm/v{version}/{linux_x64.name}", b2_bucket_name)
+
+        raise typer.Abort()
 
 
 def sign_update_info(info: UpdateInfo) -> UpdateInfo:
