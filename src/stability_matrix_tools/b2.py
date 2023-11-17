@@ -40,7 +40,7 @@ def attempt(func: Callable[[P], T], *args: Any) -> T:
 
 
 @app.command()
-def upload(file_path: Path, b2_path: str, confirm: ConfirmType = False):
+def upload(file_path: Path, b2_path: str, bucket_name: str | None = None):
     """Upload a file to a B2 bucket."""
 
     file = file_path.resolve()
@@ -49,10 +49,10 @@ def upload(file_path: Path, b2_path: str, confirm: ConfirmType = False):
     uploader = Uploader(
         api_id=env.b2_api_id,
         api_key=env.b2_api_key,
-        bucket_name=env.b2_bucket_name,
+        bucket_name=bucket_name or env.b2_bucket_name,
     )
 
-    with RichProgressListener("Uploading...", transient=True) as pbar:
+    with RichProgressListener(f"Uploading to {bucket_name or env.b2_bucket_name}...", transient=True) as pbar:
         uploader.upload(str(file), b2_path, pbar)
 
     typer.echo("Updating Cloudflare cache...")
@@ -63,15 +63,15 @@ def upload(file_path: Path, b2_path: str, confirm: ConfirmType = False):
 
 
 @app.command()
-def delete(b2_path: str):
+def delete(b2_path: str, bucket_name: str | None = None):
     """Delete a file from the B2 bucket."""
     uploader = Uploader(
         api_id=env.b2_api_id,
         api_key=env.b2_api_key,
-        bucket_name=env.b2_bucket_name,
+        bucket_name=bucket_name or env.b2_bucket_name,
     )
 
-    typer.echo(f"Deleting {b2_path}...")
+    typer.echo(f"Deleting {b2_path} in bucket {bucket_name or env.b2_bucket_name}...")
 
     file = attempt(uploader.find_file, b2_path)
     assert_exists(file, msg="File not found in B2 bucket")
