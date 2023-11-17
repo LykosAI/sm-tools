@@ -1,8 +1,10 @@
 """Manages automatic updates"""
 import base64
+import copy
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 
 from rich.progress import track
 from typing_extensions import Annotated
@@ -10,13 +12,16 @@ from urllib.parse import urljoin
 
 from httpx import HTTPStatusError
 
+from stability_matrix_tools.models.update_base import UpdateChannel
 from stability_matrix_tools.models.update_info import (
     UpdateInfo,
     UpdateCollection,
     UpdateType,
 )
 from stability_matrix_tools.models.settings import env
+from stability_matrix_tools.models.update_info_v3 import UpdateManifest, UpdatePlatforms
 from stability_matrix_tools.utils import signing
+from stability_matrix_tools.utils.console_diff import print_diff
 from stability_matrix_tools.utils.stream_hash import blake3_hash_file
 
 import typer
@@ -242,6 +247,96 @@ def publish_manual(
     upload_json(json, b2_path)
 
 
+@app.command(no_args_is_help=True)
+def publish_platforms_v3(
+    version: Annotated[str, typer.Option("--version", "-v")],
+    changelog: Annotated[str, typer.Option("--changelog")],
+    channel_value: Annotated[str, typer.Option("--channel")] = "stable",
+    update_type_value: Annotated[str, typer.Option("--type")] = "normal",
+    win_x64: Annotated[
+        Optional[tuple[str, str]], typer.Option("--win-x64", help="(url, hashBlake3)")
+    ] = (None, None),
+    linux_x64: Annotated[
+        Optional[tuple[str, str]], typer.Option("--linux-x64", help="(url, hashBlake3)")
+    ] = (None, None),
+    b2_path: Annotated[str, typer.Option("--b2-path")] = "update-v3.json",
+    confirm: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+):
+    """Publishes a v3 update"""
+
+    platforms = {
+        "win-x64": win_x64,
+        "linux-x64": linux_x64,
+    }
+    cp(f"platforms: {platforms}")
+
+    update_type = UpdateType.parse(update_type_value)
+    channel = UpdateChannel(channel_value)
+
+    release_date = datetime.utcnow()
+    cp(f"New Release Date: {release_date}")
+
+    # Get current manifest
+    current_manifest = get_current_update_v3_json(urljoin(env.cdn_root, b2_path))
+
+    # Check if we will replace any previous updates
+    if channel in current_manifest.updates:
+        to_replace = current_manifest.updates[channel]
+        cp(
+            f"The previous update ({to_replace.win_x64.version}, {to_replace.linux_x64.version}) will be removed by this operation"
+        )
+
+    # New platform update
+    new_platforms_dict = {}
+
+    # Add platforms
+    for platform_id, (update_url, update_hash) in platforms.items():
+        if update_url is None:
+            continue
+        if update_hash is None:
+            raise ValueError(f"Missing hash for {platform_id}: {platforms[platform_id]}")
+
+        info = UpdateInfo(
+            version=version,
+            releaseDate=release_date,
+            channel=channel,
+            url=update_url,
+            changelog=changelog,
+            hashBlake3=update_hash,
+            type=update_type,
+            signature="",
+        )
+        info = sign_update_info(info)
+
+        new_platforms_dict[platform_id] = info
+
+    new_platforms = UpdatePlatforms(**new_platforms_dict)
+
+    # Show replacement changes
+    if channel in current_manifest.updates:
+        cp(f"Removed for {channel}:")
+        print_json(current_manifest.updates[channel].model_dump_json(indent=2, by_alias=True))
+
+    cp(f"Added for {channel}:")
+    print_json(new_platforms.model_dump_json(indent=2, by_alias=True))
+
+    # replace current
+    new_manifest = current_manifest.model_copy(deep=True)
+    new_manifest.updates[channel] = new_platforms
+
+    cp(f"Update Manifest Diff:")
+    print_diff(
+        current_manifest.model_dump_json(indent=2, by_alias=True),
+        new_manifest.model_dump_json(indent=2, by_alias=True)
+    )
+
+    if dry_run or (not confirm and not typer.confirm(f"Publish update to {b2_path}?")):
+        raise typer.Abort()
+
+    upload_json(new_manifest.model_dump_json(indent=2, by_alias=True), b2_path)
+
+
 def sign_update_info(info: UpdateInfo) -> UpdateInfo:
     cp("Signing update...")
     signature = sign_update(
@@ -273,7 +368,9 @@ def get_blake3_hash(file_url: str) -> str:
         with httpx.stream("GET", file_url, follow_redirects=True) as r:
             r.raise_for_status()
             with temp_file.open("wb") as f:
-                for chunk in track(r.iter_bytes(chunk_size), description=desc, total=total/chunk_size):
+                for chunk in track(
+                    r.iter_bytes(chunk_size), description=desc, total=total / chunk_size
+                ):
                     f.write(chunk)
 
         hash_blake3 = blake3_hash_file(temp_file)
@@ -303,10 +400,8 @@ def upload_json(json: str, b2_path: str):
     typer.echo(f"✅  Uploaded at: {result!r}")
 
 
-def get_current_update_json(url: str):
+def get_current_update_json(url: str) -> UpdateCollection:
     cp("Fetching current manifest...")
-
-    current_collection: UpdateCollection | None = None
 
     try:
         response = httpx.get(url, headers={"Cache-Control": "no-cache"})
@@ -315,18 +410,59 @@ def get_current_update_json(url: str):
         cp(f"✅  {url!r} -> ({response.status_code})")
 
         current_collection = UpdateCollection.model_validate_json(response.text)
+
+        if current_collection.win_x64 is not None:
+            cp(f"Current win-x64: {current_collection.win_x64.version}")
+        if current_collection.linux_x64 is not None:
+            cp(f"Current linux-x64: {current_collection.linux_x64.version}")
+
     except HTTPStatusError as e:
         cp(f"Skipped current manifest ({e.response.status_code})")
 
-    if current_collection is not None and current_collection.win_x64 is not None:
-        cp(f"Current win-x64: {current_collection.win_x64.version}")
-    if current_collection is not None and current_collection.linux_x64 is not None:
-        cp(f"Current linux-x64: {current_collection.linux_x64.version}")
-    if current_collection is None:
         # Create empty collection
         current_collection = UpdateCollection()
 
     return current_collection
+
+
+def get_current_update_v3_json(url: str) -> UpdateManifest:
+    cp("Fetching current v3 manifest...")
+
+    try:
+        response = httpx.get(url, headers={"Cache-Control": "no-cache"})
+        response.raise_for_status()
+
+        cp(f"✅  {url!r} -> ({response.status_code})")
+
+        current_manifest = UpdateManifest.model_validate_json(response.text)
+    except HTTPStatusError as e:
+        cp(f"Skipped current manifest ({e.response.status_code})")
+        # Create empty collection
+        current_manifest = UpdateManifest()
+
+    return current_manifest
+
+
+@app.command()
+def check_v3(b2_path: str = "update-v3.json"):
+    """Checks for updates"""
+
+    cp(f"Checking for updates...")
+
+    url = urljoin(env.cdn_root, b2_path)
+    # Use a cache-control 0 header to ensure we get the latest version
+    res = httpx.get(url, headers={"Cache-Control": "no-cache"})
+    try:
+        res.raise_for_status()
+    except HTTPStatusError as e:
+        cp(f"❌  {url!r} -> ({e.response.status_code})")
+        return
+
+    cp(f"✅  {url!r} -> ({res.status_code})")
+    cp(res.json())
+
+    updates = UpdateManifest.model_validate_json(res.text)
+    cp(updates)
 
 
 @app.command()
