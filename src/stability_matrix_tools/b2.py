@@ -7,7 +7,7 @@ from stability_matrix_tools.utils.cf_cache import cache_purge
 
 from pathlib import Path
 from urllib.parse import urljoin
-from typing import Annotated, TypeVar, Callable, ParamSpec, Any
+from typing import Annotated, TypeVar, Callable, ParamSpec, Any, Optional
 
 import typer
 from typer import Option
@@ -40,7 +40,7 @@ def attempt(func: Callable[[P], T], *args: Any) -> T:
 
 
 @app.command()
-def upload(file_path: Path, b2_path: str, bucket_name: str | None = None):
+def upload(file_path: Path, b2_path: str, bucket_name: Optional[str] = None):
     """Upload a file to a B2 bucket."""
 
     file = file_path.resolve()
@@ -63,7 +63,7 @@ def upload(file_path: Path, b2_path: str, bucket_name: str | None = None):
 
 
 @app.command()
-def delete(b2_path: str, bucket_name: str | None = None):
+def delete(b2_path: str, bucket_name: Optional[str] = None):
     """Delete a file from the B2 bucket."""
     uploader = Uploader(
         api_id=env.b2_api_id,
