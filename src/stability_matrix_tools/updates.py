@@ -396,14 +396,17 @@ def publish_files_v3(
     # /sm/v{version}/CHANGELOG.md
     # /sm/v{version}/StabilityMatrix-{platform}.zip
 
-    b2.upload(changelog, f"sm/v{version}/{changelog.name}", b2_bucket_name)
+    # Changelog goes to main bucket
+    b2.upload(changelog, f"sm/v{version}/{changelog.name}", env.b2_bucket_name)
+
+    # Downloads go to selected bucket
     b2.upload(win_x64, f"sm/v{version}/{win_x64.name}", b2_bucket_name)
     b2.upload(linux_x64, f"sm/v{version}/{linux_x64.name}", b2_bucket_name)
 
     try:
         publish_platforms_v3(
             version=version,
-            changelog=urljoin(base_url, f"sm/v{version}/{changelog.name}"),
+            changelog=urljoin(env.cdn_root + "/", f"sm/v{version}/{changelog.name}"),
             channel_value=channel_value,
             update_type_value=update_type_value,
             win_x64=(urljoin(base_url, f"sm/v{version}/{win_x64.name}"), hash_win_x64),
