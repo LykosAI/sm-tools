@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "stability-matrix-tools"
-version = "0.2.7"
+version = "0.2.8"
 description = ""
 authors = ["Ionite <dev@ionite.io>"]
 readme = "README.md"
