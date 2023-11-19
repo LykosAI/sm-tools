@@ -378,10 +378,14 @@ def publish_files_v3(
     if not (win_x64 and linux_x64):
         raise ValueError("Platforms win_x64 and linux_x64 are required")
 
-    if b2_bucket_name == env.b2_bucket_secure_name:
-        base_url = urljoin(env.cdn_root, "s1") + "/"
-    else:
+    # Add b2 bucket prefix if not main bucket
+    # Need postfix slash or urljoin won't work later
+    if b2_bucket_name != "lykos-1":
         base_url = env.cdn_root + "/"
+    else:
+        base_url = urljoin(env.cdn_root, b2_bucket_name) + "/"
+
+    cp(f"Base CDN URL: {base_url}")
 
     hash_win_x64 = blake3_hash_file(win_x64)
     cp(f"win-x64 hash: {hash_win_x64}")
