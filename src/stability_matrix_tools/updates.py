@@ -379,9 +379,9 @@ def publish_files_v3(
         raise ValueError("Platforms win_x64 and linux_x64 are required")
 
     if b2_bucket_name == env.b2_bucket_secure_name:
-        base_url = urljoin(env.cdn_root, "s1")
+        base_url = urljoin(env.cdn_root, "s1") + "/"
     else:
-        base_url = env.cdn_root
+        base_url = env.cdn_root + "/"
 
     hash_win_x64 = blake3_hash_file(win_x64)
     cp(f"win-x64 hash: {hash_win_x64}")
@@ -399,12 +399,12 @@ def publish_files_v3(
     try:
         publish_platforms_v3(
             version=version,
-            changelog=urljoin(base_url, f"/sm/v{version}/{changelog.name}"),
+            changelog=urljoin(base_url, f"sm/v{version}/{changelog.name}"),
             channel_value=channel_value,
             update_type_value=update_type_value,
-            win_x64=(urljoin(base_url, f"/sm/v{version}/{win_x64.name}"), hash_win_x64),
+            win_x64=(urljoin(base_url, f"sm/v{version}/{win_x64.name}"), hash_win_x64),
             linux_x64=(
-                urljoin(base_url, f"/sm/v{version}/{linux_x64.name}"),
+                urljoin(base_url, f"sm/v{version}/{linux_x64.name}"),
                 hash_linux_x64,
             ),
             b2_path=b2_manifest_path,
