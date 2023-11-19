@@ -392,9 +392,9 @@ def publish_files_v3(
     # /sm/v{version}/CHANGELOG.md
     # /sm/v{version}/StabilityMatrix-{platform}.zip
 
-    b2.upload(changelog, f"/sm/v{version}/{changelog.name}", b2_bucket_name)
-    b2.upload(win_x64, f"/sm/v{version}/{win_x64.name}", b2_bucket_name)
-    b2.upload(linux_x64, f"/sm/v{version}/{linux_x64.name}", b2_bucket_name)
+    b2.upload(changelog, f"sm/v{version}/{changelog.name}", b2_bucket_name)
+    b2.upload(win_x64, f"sm/v{version}/{win_x64.name}", b2_bucket_name)
+    b2.upload(linux_x64, f"sm/v{version}/{linux_x64.name}", b2_bucket_name)
 
     try:
         publish_platforms_v3(
@@ -416,9 +416,9 @@ def publish_files_v3(
         cp("Cleaning up...")
 
         # Delete files
-        b2.delete(f"/sm/v{version}/{changelog.name}", b2_bucket_name)
-        b2.delete(f"/sm/v{version}/{win_x64.name}", b2_bucket_name)
-        b2.delete(f"/sm/v{version}/{linux_x64.name}", b2_bucket_name)
+        b2.delete(f"sm/v{version}/{changelog.name}", b2_bucket_name)
+        b2.delete(f"sm/v{version}/{win_x64.name}", b2_bucket_name)
+        b2.delete(f"sm/v{version}/{linux_x64.name}", b2_bucket_name)
 
         raise typer.Abort()
 
