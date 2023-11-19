@@ -1,3 +1,5 @@
+from urllib.parse import urljoin
+
 import dotenv
 from pydantic.v1 import BaseSettings
 
@@ -26,6 +28,10 @@ class EnvSettings(BaseSettings):
 
     # debug
     verbose: bool = False
+
+    @property
+    def cdn_root_secure(self) -> str:
+        return urljoin(self.cdn_root, self.b2_bucket_secure_name.replace("lykos-", "", 1))
 
     class Config:
         env_file = dotenv.find_dotenv(usecwd=True)

@@ -360,7 +360,7 @@ def publish_files_v3(
         Optional[Path],
         typer.Option("--linux-x64", help="File path to linux-x64 update"),
     ] = None,
-    b2_bucket_name: Annotated[str, typer.Option("--b2-bucket-name")] = "lykos-s1",
+    b2_bucket_name: Annotated[str, typer.Option("--b2-bucket-name")] = env.b2_bucket_secure_name,
     b2_manifest_path: Annotated[
         str, typer.Option("--b2-manifest-path")
     ] = "update-v3.json",
@@ -378,7 +378,10 @@ def publish_files_v3(
     if not (win_x64 and linux_x64):
         raise ValueError("Platforms win_x64 and linux_x64 are required")
 
-    base_url = urljoin(env.cdn_root, "s1")
+    if b2_bucket_name == env.b2_bucket_secure_name:
+        base_url = urljoin(env.cdn_root, "s1")
+    else:
+        base_url = env.cdn_root
 
     hash_win_x64 = blake3_hash_file(win_x64)
     cp(f"win-x64 hash: {hash_win_x64}")
