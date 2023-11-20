@@ -8,7 +8,7 @@ from typing import Optional
 
 from rich.progress import track
 from typing_extensions import Annotated
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote
 
 from httpx import HTTPStatusError
 
@@ -406,12 +406,12 @@ def publish_files_v3(
     try:
         publish_platforms_v3(
             version=version,
-            changelog=urljoin(env.cdn_root + "/", f"sm/v{version}/{changelog.name}"),
+            changelog=urljoin(env.cdn_root + "/", quote(f"sm/v{version}/{changelog.name}")),
             channel_value=channel_value,
             update_type_value=update_type_value,
-            win_x64=(urljoin(base_url, f"sm/v{version}/{win_x64.name}"), hash_win_x64),
+            win_x64=(urljoin(base_url, quote(f"sm/v{version}/{win_x64.name}")), hash_win_x64),
             linux_x64=(
-                urljoin(base_url, f"sm/v{version}/{linux_x64.name}"),
+                urljoin(base_url, quote(f"sm/v{version}/{linux_x64.name}")),
                 hash_linux_x64,
             ),
             b2_path=b2_manifest_path,
