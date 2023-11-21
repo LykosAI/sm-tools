@@ -160,6 +160,54 @@ def publish_matrix(
 
 
 @app.command()
+def publish_matrix_v3(
+    version: Annotated[str, typer.Option("--version", "-v")],
+    channel: Annotated[str, typer.Option("--channel")] = "stable",
+    update_type_value: Annotated[str, typer.Option("--type")] = "normal",
+    b2_path: Annotated[str, typer.Option("--b2-path")] = "update-v3.json",
+    confirm: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+):
+    """Publishes multiple update v3 for supported platforms"""
+    version_str = f"v{version}"
+    changelog = f"https://cdn.jsdelivr.net/gh/LykosAI/StabilityMatrix@{version_str}/CHANGELOG.md"
+    cp(f"changelog url: {changelog}")
+
+    platforms = {
+        "win-x64": {
+            "url": f"https://github.com/LykosAI/StabilityMatrix/releases/download/{version_str}/StabilityMatrix-win-x64.zip",
+            "hash": "",
+        },
+        "linux-x64": {
+            "url": f"https://github.com/LykosAI/StabilityMatrix/releases/download/{version_str}/StabilityMatrix-linux-x64.zip",
+            "hash": "",
+        }
+    }
+
+    # Populate hashes
+    for platform_id, platform in platforms.items():
+        platform["hash"] = get_blake3_hash(platform["url"])
+
+    publish_platforms_v3(
+        version=version,
+        changelog=changelog,
+        channel_value=channel,
+        update_type_value=update_type_value,
+        win_x64=(
+            platforms["win-x64"]["url"],
+            platforms["win-x64"]["hash"],
+        ),
+        linux_x64=(
+            platforms["linux-x64"]["url"],
+            platforms["linux-x64"]["hash"],
+        ),
+        b2_path=b2_path,
+        confirm=confirm,
+        dry_run=dry_run,
+    )
+
+
+@app.command()
 def publish(
     platform: Annotated[str, typer.Option("--platform", "-p")],
     version: Annotated[str, typer.Option("--version", "-v")],
