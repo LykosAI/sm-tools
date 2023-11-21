@@ -159,7 +159,7 @@ def publish_matrix(
     upload_json(json, b2_path)
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def publish_matrix_v3(
     version: Annotated[str, typer.Option("--version", "-v")],
     channel: Annotated[str, typer.Option("--channel")] = "stable",
@@ -428,7 +428,7 @@ def publish_files_v3(
 
     # Add b2 bucket prefix if not main bucket
     # Need postfix slash or urljoin won't work later
-    if b2_bucket_name != "lykos-1":
+    if b2_bucket_name == "lykos-1":
         base_url = env.cdn_root + "/"
     else:
         base_url = urljoin(env.cdn_root, b2_bucket_name) + "/"
