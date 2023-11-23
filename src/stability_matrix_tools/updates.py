@@ -1,36 +1,33 @@
 """Manages automatic updates"""
 import base64
-import copy
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Optional
+from urllib.parse import quote, urljoin
 
+import httpx
+import typer
+from httpx import HTTPStatusError
+from rich import print as cp
+from rich import print_json
 from rich.progress import track
 from typing_extensions import Annotated
-from urllib.parse import urljoin, quote
-
-from httpx import HTTPStatusError
 
 from stability_matrix_tools import b2
+from stability_matrix_tools.models.settings import env
 from stability_matrix_tools.models.update_base import UpdateChannel
 from stability_matrix_tools.models.update_info import (
-    UpdateInfo,
     UpdateCollection,
+    UpdateInfo,
     UpdateType,
 )
-from stability_matrix_tools.models.settings import env
 from stability_matrix_tools.models.update_info_v3 import UpdateManifest, UpdatePlatforms
-from stability_matrix_tools.utils import signing
-from stability_matrix_tools.utils.console_diff import print_diff
-from stability_matrix_tools.utils.stream_hash import blake3_hash_file
-
-import typer
-import httpx
-from rich import print as cp, print_json
-
+from stability_matrix_tools.utils import signing, uris
 from stability_matrix_tools.utils.cf_cache import cache_purge
+from stability_matrix_tools.utils.console_diff import print_diff
 from stability_matrix_tools.utils.progress import RichProgressListener
+from stability_matrix_tools.utils.stream_hash import blake3_hash_file
 from stability_matrix_tools.utils.uploader import Uploader
 
 app = typer.Typer(no_args_is_help=True)
@@ -94,6 +91,14 @@ def sign_update(
     return base64.b64encode(signature).decode("utf-8")
 
 
+def get_cdn_url(b2_path: str, bucket_name: str) -> str:
+    # If bucket name is not default, add it to the url
+    if bucket_name == "lykos-1":
+        return uris.join(env.cdn_root, b2_path)
+    else:
+        return uris.join(env.cdn_root, bucket_name, b2_path)
+
+
 @app.command()
 def publish_matrix(
     version: Annotated[str, typer.Option("--version", "-v")],
@@ -114,7 +119,7 @@ def publish_matrix(
     # Create update info for each platform
     platform_infos: dict[str, UpdateInfo] = {}
 
-    for (platform, url) in (
+    for platform, url in (
         (
             "win-x64",
             f"https://github.com/LykosAI/StabilityMatrix/releases/download/{version_str}/StabilityMatrix.exe",
@@ -150,7 +155,7 @@ def publish_matrix(
 
     # Print and ask for confirmation
     json = current_collection.model_dump_json(indent=4, by_alias=True)
-    cp(f"Update Info JSON:")
+    cp("Update Info JSON:")
     print_json(json)
 
     if dry_run or (not confirm and not typer.confirm("Publish update?")):
@@ -173,15 +178,21 @@ def publish_matrix_v3(
     changelog = f"https://cdn.jsdelivr.net/gh/LykosAI/StabilityMatrix@{version_str}/CHANGELOG.md"
     cp(f"changelog url: {changelog}")
 
+    github_base_url = "https://github.com/LykosAI/StabilityMatrix/releases/download/"
+
     platforms = {
         "win-x64": {
-            "url": f"https://github.com/LykosAI/StabilityMatrix/releases/download/{version_str}/StabilityMatrix-win-x64.zip",
+            "url": uris.join(
+                github_base_url, version_str, "StabilityMatrix-win-x64.zip"
+            ),
             "hash": "",
         },
         "linux-x64": {
-            "url": f"https://github.com/LykosAI/StabilityMatrix/releases/download/{version_str}/StabilityMatrix-linux-x64.zip",
+            "url": uris.join(
+                github_base_url, version_str, "StabilityMatrix-linux-x64.zip"
+            ),
             "hash": "",
-        }
+        },
     }
 
     # Populate hashes
@@ -287,7 +298,7 @@ def publish_manual(
 
     # Print and ask for confirmation
     json = current_collection.model_dump_json(indent=4, by_alias=True)
-    cp(f"Update Info JSON:")
+    cp("Update Info JSON:")
     print_json(json)
 
     if dry_run or (not confirm and not typer.confirm("Publish update?")):
@@ -330,7 +341,7 @@ def publish_platforms_v3(
     cp(f"New Release Date: {release_date}")
 
     # Get current manifest
-    current_manifest = get_current_update_v3_json(urljoin(env.cdn_root, b2_path))
+    current_manifest = get_current_update_v3_json(uris.join(env.cdn_root, b2_path))
 
     # Check if we will replace any previous updates
     if channel in current_manifest.updates:
@@ -381,7 +392,7 @@ def publish_platforms_v3(
     new_manifest = current_manifest.model_copy(deep=True)
     new_manifest.updates[channel] = new_platforms
 
-    cp(f"Update Manifest Diff:")
+    cp("Update Manifest Diff:")
     print_diff(
         current_manifest.model_dump_json(indent=2, by_alias=True),
         new_manifest.model_dump_json(indent=2, by_alias=True),
@@ -408,7 +419,9 @@ def publish_files_v3(
         Optional[Path],
         typer.Option("--linux-x64", help="File path to linux-x64 update"),
     ] = None,
-    b2_bucket_name: Annotated[str, typer.Option("--b2-bucket-name")] = env.b2_bucket_secure_name,
+    b2_bucket_name: Annotated[
+        str, typer.Option("--b2-bucket-name")
+    ] = env.b2_bucket_secure_name,
     b2_manifest_path: Annotated[
         str, typer.Option("--b2-manifest-path")
     ] = "update-v3.json",
@@ -417,50 +430,65 @@ def publish_files_v3(
 ):
     """Publishes a v3 update with files"""
 
-    platforms = {
-        "win-x64": win_x64,
-        "linux-x64": linux_x64,
-    }
-    cp(f"platforms: {platforms}")
-
     if not (win_x64 and linux_x64):
         raise ValueError("Platforms win_x64 and linux_x64 are required")
 
-    # Add b2 bucket prefix if not main bucket
-    # Need postfix slash or urljoin won't work later
-    if b2_bucket_name == "lykos-1":
-        base_url = env.cdn_root + "/"
-    else:
-        base_url = urljoin(env.cdn_root, b2_bucket_name) + "/"
+    platforms = {
+        "win-x64": {
+            "path": win_x64,
+            "url": "",
+            "hash": "",
+        },
+        "linux-x64": {
+            "path": linux_x64,
+            "url": "",
+            "hash": "",
+        },
+    }
 
-    cp(f"Base CDN URL: {base_url}")
-
-    hash_win_x64 = blake3_hash_file(win_x64)
-    cp(f"win-x64 hash: {hash_win_x64}")
-    hash_linux_x64 = blake3_hash_file(linux_x64)
-    cp(f"linux-x64 hash: {hash_linux_x64}")
+    # Populate hashes
+    for platform_id, platform in platforms.items():
+        platform["hash"] = blake3_hash_file(platform["path"])
 
     # default path is
     # /sm/v{version}/CHANGELOG.md
     # /sm/v{version}/StabilityMatrix-{platform}.zip
 
     # Changelog goes to main bucket
-    b2.upload(changelog, f"sm/v{version}/{changelog.name}", env.b2_bucket_name)
+    changelog_b2_path = f"sm/v{version}/{changelog.name}"
+    b2.upload(changelog, changelog_b2_path, env.b2_bucket_name)
+    changelog_url = uris.join(
+        get_cdn_url(changelog_b2_path, env.b2_bucket_name), quote(changelog_b2_path)
+    )
 
     # Downloads go to selected bucket
-    b2.upload(win_x64, f"sm/v{version}/{win_x64.name}", b2_bucket_name)
-    b2.upload(linux_x64, f"sm/v{version}/{linux_x64.name}", b2_bucket_name)
+    for platform_id, platform in platforms.items():
+        b2_path = f"sm/v{version}/{platform['path'].name}"
+        b2.upload(platform["path"], b2_path, b2_bucket_name)
+
+        platform["b2_path"] = b2_path
+
+        # Add url to platform
+        platform["url"] = uris.join(
+            get_cdn_url(b2_path, b2_bucket_name),
+            quote(b2_path),
+        )
+
+    cp(f"platforms: {platforms}")
 
     try:
         publish_platforms_v3(
             version=version,
-            changelog=urljoin(env.cdn_root + "/", quote(f"sm/v{version}/{changelog.name}")),
+            changelog=changelog_url,
             channel_value=channel_value,
             update_type_value=update_type_value,
-            win_x64=(urljoin(base_url, quote(f"sm/v{version}/{win_x64.name}")), hash_win_x64),
+            win_x64=(
+                platforms["win-x64"]["url"],
+                platforms["win-x64"]["hash"],
+            ),
             linux_x64=(
-                urljoin(base_url, quote(f"sm/v{version}/{linux_x64.name}")),
-                hash_linux_x64,
+                platforms["linux-x64"]["url"],
+                platforms["linux-x64"]["hash"],
             ),
             b2_path=b2_manifest_path,
             confirm=confirm,
@@ -471,9 +499,11 @@ def publish_files_v3(
         cp("Cleaning up...")
 
         # Delete files
-        b2.delete(f"sm/v{version}/{changelog.name}", b2_bucket_name)
-        b2.delete(f"sm/v{version}/{win_x64.name}", b2_bucket_name)
-        b2.delete(f"sm/v{version}/{linux_x64.name}", b2_bucket_name)
+        b2.delete(changelog_b2_path, env.b2_bucket_name)
+
+        for platform_id, platform in platforms.items():
+            if "b2_path" in platform:
+                b2.delete(platform["b2_path"], b2_bucket_name)
 
         raise typer.Abort()
 
@@ -588,7 +618,7 @@ def get_current_update_v3_json(url: str) -> UpdateManifest:
 def check_v3(b2_path: str = "update-v3.json"):
     """Checks for updates"""
 
-    cp(f"Checking for updates...")
+    cp("Checking for updates...")
 
     url = urljoin(env.cdn_root, b2_path)
     # Use a cache-control 0 header to ensure we get the latest version
@@ -610,7 +640,7 @@ def check_v3(b2_path: str = "update-v3.json"):
 def check(b2_path: str = "update-v2.json"):
     """Checks for updates"""
 
-    cp(f"Checking for updates...")
+    cp("Checking for updates...")
 
     url = urljoin(env.cdn_root, b2_path)
     # Use a cache-control 0 header to ensure we get the latest version
