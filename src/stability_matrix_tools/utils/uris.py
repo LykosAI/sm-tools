@@ -5,6 +5,18 @@ from urllib import parse
 __all__ = ["join"]
 
 
+def _process_uri_part(uri_part: str) -> str:
+    """Process uri part."""
+    # Remove leading slashes
+    uri_part = uri_part.lstrip("/")
+
+    # Add a trailing slash if not present
+    if not uri_part.endswith("/"):
+        uri_part += "/"
+
+    return uri_part
+
+
 def join(*args: str) -> str:
     """Join uri parts."""
     if not args:
@@ -13,11 +25,12 @@ def join(*args: str) -> str:
     if len(args) == 1:
         return args[0]
 
-    # Add slash after first arg if not present
-    if not args[0].endswith("/"):
-        args = (args[0] + "/",) + args[1:]
+    processed = (_process_uri_part(arg) for arg in args)
 
-    # Remove leading slash from args after first
-    args = (args[0],) + tuple(arg.lstrip("/") for arg in args[1:])
+    result = reduce(parse.urljoin, processed)
 
-    return reduce(parse.urljoin, args)
+    # Remove trailing slash
+    if result.endswith("/"):
+        result = result[:-1]
+
+    return result

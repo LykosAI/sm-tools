@@ -527,6 +527,10 @@ def sign_update_info(info: UpdateInfo) -> UpdateInfo:
 
 def get_blake3_hash(file_url: str) -> str:
     file_name = file_url.split("/")[-1]
+
+    if not file_name:
+        raise ValueError(f"Invalid file url, file name not found: {file_url!r}")
+
     desc = f"Downloading {file_name}..."
 
     header_resp = httpx.head(file_url, follow_redirects=True)
