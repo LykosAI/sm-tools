@@ -94,9 +94,9 @@ def sign_update(
 def get_cdn_url(b2_path: str, bucket_name: str) -> str:
     # If bucket name is not default, add it to the url
     if bucket_name == "lykos-1":
-        return uris.join(env.cdn_root, b2_path)
+        return uris.join(env.cdn_root, quote(b2_path))
     else:
-        return uris.join(env.cdn_root, bucket_name, b2_path)
+        return uris.join(env.cdn_root, bucket_name, quote(b2_path))
 
 
 @app.command()
@@ -457,9 +457,7 @@ def publish_files_v3(
     # Changelog goes to main bucket
     changelog_b2_path = f"sm/v{version}/{changelog.name}"
     b2.upload(changelog, changelog_b2_path, env.b2_bucket_name)
-    changelog_url = uris.join(
-        get_cdn_url(changelog_b2_path, env.b2_bucket_name), quote(changelog_b2_path)
-    )
+    changelog_url = get_cdn_url(changelog_b2_path, env.b2_bucket_name)
 
     # Downloads go to selected bucket
     for platform_id, platform in platforms.items():
@@ -469,10 +467,7 @@ def publish_files_v3(
         platform["b2_path"] = b2_path
 
         # Add url to platform
-        platform["url"] = uris.join(
-            get_cdn_url(b2_path, b2_bucket_name),
-            quote(b2_path),
-        )
+        platform["url"] = get_cdn_url(changelog_b2_path, env.b2_bucket_name)
 
     cp(f"platforms: {platforms}")
 
