@@ -467,7 +467,7 @@ def publish_files_v3(
         platform["b2_path"] = b2_path
 
         # Add url to platform
-        platform["url"] = get_cdn_url(changelog_b2_path, env.b2_bucket_name)
+        platform["url"] = get_cdn_url(changelog_b2_path, b2_bucket_name)
 
     cp(f"platforms: {platforms}")
 
