@@ -435,12 +435,12 @@ def publish_files_v3(
 
     platforms = {
         "win-x64": {
-            "path": win_x64,
+            "path": win_x64.resolve(),
             "url": "",
             "hash": "",
         },
         "linux-x64": {
-            "path": linux_x64,
+            "path": linux_x64.resolve(),
             "url": "",
             "hash": "",
         },
@@ -461,13 +461,12 @@ def publish_files_v3(
 
     # Downloads go to selected bucket
     for platform_id, platform in platforms.items():
-        b2_path = f"sm/v{version}/{platform['path'].name}"
-        b2.upload(platform["path"], b2_path, b2_bucket_name)
-
-        platform["b2_path"] = b2_path
-
+        # Set b2 path
+        platform["b2_path"] = f"sm/v{version}/{platform['path'].name}"
+        # Upload file
+        b2.upload(platform["path"], platform["b2_path"], b2_bucket_name)
         # Add url to platform
-        platform["url"] = get_cdn_url(changelog_b2_path, b2_bucket_name)
+        platform["url"] = get_cdn_url(platform["b2_path"], b2_bucket_name)
 
     cp(f"platforms: {platforms}")
 
