@@ -18,9 +18,20 @@ from stability_matrix_tools.utils import uris
         ("https://example.org/abc", ("https://example.org", "/abc/")),
         # Multiple parts
         ("https://example.org/abc/def", ("https://example.org", "abc", "def")),
-        # Url escape
-        ("https://example.org/abc%2Bdef", ("https://example.org", "abc+def")),
+        # No Url escape
+        ("https://example.org/abc+def", ("https://example.org", "abc+def")),
     ],
 )
 def test_join(expected, parts):
     assert uris.join(*parts) == expected
+
+
+@pytest.mark.parametrize(
+    "expected,parts",
+    [
+        # Url escape
+        ("https://example.org/abc%2Bdef", ("https://example.org", "abc+def")),
+    ],
+)
+def test_join_quoted(expected, parts):
+    assert uris.join(*parts, quote=True) == expected
