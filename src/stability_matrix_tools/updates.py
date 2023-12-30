@@ -193,6 +193,12 @@ def publish_matrix_v3(
             ),
             "hash": "",
         },
+        "macos-arm64": {
+            "url": uris.join(
+                github_base_url, version_str, "StabilityMatrix-macos-arm64.dmg"
+            ),
+            "hash": "",
+        },
     }
 
     # Populate hashes
@@ -211,6 +217,10 @@ def publish_matrix_v3(
         linux_x64=(
             platforms["linux-x64"]["url"],
             platforms["linux-x64"]["hash"],
+        ),
+        macos_arm64=(
+            platforms["macos-arm64"]["url"],
+            platforms["macos-arm64"]["hash"],
         ),
         b2_path=b2_path,
         confirm=confirm,
@@ -319,6 +329,9 @@ def publish_platforms_v3(
     linux_x64: Annotated[
         Optional[tuple[str, str]], typer.Option("--linux-x64", help="(url, hashBlake3)")
     ] = (None, None),
+    macos_arm64: Annotated[
+        Optional[tuple[str, str]], typer.Option("--macos-arm64", help="(url, hashBlake3)")
+    ] = (None, None),
     b2_path: Annotated[str, typer.Option("--b2-path")] = "update-v3.json",
     confirm: Annotated[bool, typer.Option("--yes", "-y")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
@@ -328,10 +341,11 @@ def publish_platforms_v3(
     platforms = {
         "win-x64": win_x64,
         "linux-x64": linux_x64,
+        "macos-arm64": macos_arm64,
     }
     cp(f"platforms: {platforms}")
 
-    if not win_x64[0] and not linux_x64[0]:
+    if not win_x64[0] and not linux_x64[0] and not macos_arm64[0]:
         raise ValueError("No platforms specified")
 
     update_type = UpdateType.parse(update_type_value)
@@ -355,9 +369,9 @@ def publish_platforms_v3(
 
     # Add platforms
     for platform_id, (update_url, update_hash) in platforms.items():
-        if update_url is None:
+        if not update_url:
             continue
-        if update_hash is None:
+        if not update_hash:
             raise ValueError(
                 f"Missing hash for {platform_id}: {platforms[platform_id]}"
             )
@@ -419,6 +433,10 @@ def publish_files_v3(
         Optional[Path],
         typer.Option("--linux-x64", help="File path to linux-x64 update"),
     ] = None,
+    macos_arm64: Annotated[
+        Optional[Path],
+        typer.Option("--macos-arm64", help="File path to macos-arm64 update"),
+    ] = None,
     b2_bucket_name: Annotated[
         str, typer.Option("--b2-bucket-name")
     ] = env.b2_bucket_secure_name,
@@ -430,17 +448,22 @@ def publish_files_v3(
 ):
     """Publishes a v3 update with files"""
 
-    if not (win_x64 and linux_x64):
-        raise ValueError("Platforms win_x64 and linux_x64 are required")
+    if not win_x64 and not linux_x64 and not macos_arm64:
+        raise ValueError("No platforms specified")
 
     platforms = {
         "win-x64": {
-            "path": win_x64.resolve(),
+            "path": win_x64 and win_x64.resolve(),
             "url": "",
             "hash": "",
         },
         "linux-x64": {
-            "path": linux_x64.resolve(),
+            "path": linux_x64 and linux_x64.resolve(),
+            "url": "",
+            "hash": "",
+        },
+        "macos-arm64": {
+            "path": macos_arm64 and macos_arm64.resolve(),
             "url": "",
             "hash": "",
         },
@@ -448,6 +471,9 @@ def publish_files_v3(
 
     # Populate hashes
     for platform_id, platform in platforms.items():
+        if not platform["path"]:
+            continue
+
         platform["hash"] = blake3_hash_file(platform["path"])
 
     # default path is
@@ -461,6 +487,9 @@ def publish_files_v3(
 
     # Downloads go to selected bucket
     for platform_id, platform in platforms.items():
+        if not platform["path"]:
+            continue
+
         # Set b2 path
         platform["b2_path"] = f"sm/v{version}/{platform['path'].name}"
         # Upload file
@@ -483,6 +512,10 @@ def publish_files_v3(
             linux_x64=(
                 platforms["linux-x64"]["url"],
                 platforms["linux-x64"]["hash"],
+            ),
+            macos_arm64=(
+                platforms["macos-arm64"]["url"],
+                platforms["macos-arm64"]["hash"],
             ),
             b2_path=b2_manifest_path,
             confirm=confirm,
@@ -584,6 +617,8 @@ def get_current_update_json(url: str) -> UpdateCollection:
             cp(f"Current win-x64: {current_collection.win_x64.version}")
         if current_collection.linux_x64 is not None:
             cp(f"Current linux-x64: {current_collection.linux_x64.version}")
+        if current_collection.macos_arm64 is not None:
+            cp(f"Current macos-arm64: {current_collection.macos_arm64.version}")
 
     except HTTPStatusError as e:
         cp(f"Skipped current manifest ({e.response.status_code})")
