@@ -13,6 +13,7 @@ class UpdateManifest(BaseModel):
 class UpdatePlatforms(BaseModel):
     win_x64: UpdateInfo | None = Field(alias="win-x64", default=None)
     linux_x64: UpdateInfo | None = Field(alias="linux-x64", default=None)
+    macos_arm64: UpdateInfo | None = Field(alias="macos-arm64", default=None)
 
     class Config:
         populate_by_name = True
