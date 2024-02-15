@@ -1,5 +1,6 @@
 """Git routines and tools."""
 import re
+import tempfile
 
 import rich
 import typer
@@ -11,6 +12,7 @@ from typing_extensions import Annotated
 
 from stability_matrix_tools.models.keyring_config import ConfigKey, KeyringConfig
 from stability_matrix_tools.models.settings import env
+from stability_matrix_tools.utils.git_process import GitProcess
 
 app = typer.Typer(no_args_is_help=True)
 cp = rich.print
@@ -46,12 +48,12 @@ class GitContext:
         result = re.match(r"(?:https?://github.com/)?(.+?)/(.+?)(?:\.git)?$", url)
         # Only get the first 2 groups
         owner, name = result.groups()[:2]
-        return self.gh.get_repo(
-            f"{owner}/{name}", lazy=True
-        )
+        return self.gh.get_repo(f"{owner}/{name}", lazy=True)
 
     @staticmethod
-    def compare(base_repo: Repository, base: Commit, head_repo: Repository, head: Commit):
+    def compare(
+        base_repo: Repository, base: Commit, head_repo: Repository, head: Commit
+    ):
         head_part = f"{head_repo.owner.login}:{head_repo.name}:{head.sha}"
         return base_repo.compare(base.sha, head_part)
 
@@ -84,7 +86,9 @@ def pr_merge_branch(repo_url: str, from_branch: str, to_branch: str):
         sha=source.commit.sha,
     )
 
-    cp(f"Creating branch: {repo_str}/{merge_branch_name} from {repo_str}/{from_branch} @ {source.commit.sha[:7]}")
+    cp(
+        f"Creating branch: {repo_str}/{merge_branch_name} from {repo_str}/{from_branch} @ {source.commit.sha[:7]}"
+    )
     cp(f"Creating PR: {repo_str}/{merge_branch_name} -> {repo_str}/{to_branch}")
 
     # create a PR from private/main to private/dev
@@ -120,3 +124,49 @@ def private_main_to_dev():
 def private_dev_to_main():
     """Creates a PR to merge private/dev into private/main."""
     dev_to_main(env.git_repo_private)
+
+
+@app.command()
+def private_to_fork(
+    new_tag: Annotated[str, typer.Option("--new-tag")] = "",
+    dry_run: bool = False,
+    confirm: ConfirmType = False,
+):
+    """Creates a PR to merge private/main into fork/main."""
+
+    # Clone the private repo and add the fork as a remote
+    with tempfile.TemporaryDirectory() as private_repo_dir:
+        git = GitProcess(private_repo_dir)
+
+        cp("Cloning private repo")
+        git.run_cmd("clone", "--filter=tree:0", env.git_repo_private, ".")
+
+        cp("Adding fork as remote")
+        git.run_cmd("remote", "add", "fork", env.git_repo_fork)
+
+        cp("Checking out main")
+        git.run_cmd("checkout", "main")
+
+        # Get current main commit sha
+        main_sha = git.run_cmd("rev-parse", "main").strip()
+        cp(f"Current main commit sha: {main_sha[:7]}")
+
+        if new_tag:
+            cp(f"Creating tag: {new_tag}")
+            git.run_cmd("tag", "-a", new_tag, "-m", '""', main_sha)
+
+            cp(f"Pushing tag to origin: {new_tag}")
+            git.run_cmd("push", "origin", new_tag)
+
+        cp("Pulling fork to main")
+        git.run_cmd("pull", "origin")
+        git.run_cmd("pull", "fork", "main")
+
+        # git.run_cmd("-c", "pull.rebase=false", "pull", "fork", "main")
+
+        if dry_run or (not confirm and not typer.confirm("Confirm?")):
+            raise typer.Abort()
+
+        cp("Pushing to fork")
+        git.run_cmd("push", "fork", "main")
+        git.run_cmd("push", "fork", "--tags")
