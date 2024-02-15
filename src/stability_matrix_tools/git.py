@@ -2,11 +2,11 @@
 import re
 import tempfile
 
-import rich
 import typer
 from github import Auth, Github
 from github.Commit import Commit
 from github.Repository import Repository
+from rich import print as cp
 from typer import Option
 from typing_extensions import Annotated
 
@@ -15,7 +15,6 @@ from stability_matrix_tools.models.settings import env
 from stability_matrix_tools.utils.git_process import GitProcess
 
 app = typer.Typer(no_args_is_help=True)
-cp = rich.print
 
 ConfirmType = Annotated[bool, Option("--yes", "-y", help="Confirm")]
 
@@ -138,8 +137,8 @@ def private_to_fork(
     with tempfile.TemporaryDirectory() as private_repo_dir:
         git = GitProcess(private_repo_dir)
 
-        cp("Cloning private repo")
-        git.run_cmd("clone", "--filter=tree:0", env.git_repo_private, ".")
+        cp("Cloning private repo", env.git_repo_private)
+        git.run_cmd("clone", env.git_repo_private, ".")
 
         cp("Adding fork as remote")
         git.run_cmd("remote", "add", "fork", env.git_repo_fork)
@@ -170,3 +169,40 @@ def private_to_fork(
         cp("Pushing to fork")
         git.run_cmd("push", "fork", "main")
         git.run_cmd("push", "fork", "--tags")
+
+
+@app.command()
+def private_tags_to_public():
+    with tempfile.TemporaryDirectory() as private_repo_dir:
+        git = GitProcess(private_repo_dir)
+
+        cp(f"Cloning private repo: {env.git_repo_private}")
+        git.run_cmd("clone", env.git_repo_private, ".")
+
+        cp(f"Adding public as remote: {env.git_repo_public}")
+        git.run_cmd("remote", "add", "public", env.git_repo_public)
+
+        cp("Pushing tags to public")
+        git.run_cmd("push", "public", "--tags")
+
+
+@app.command()
+def fork_to_public(title: str, body: str = ""):
+    """Creates a PR to merge a fork's main branch into public/main."""
+    ctx = GitContext()
+
+    fork = ctx.get_fork_repo()
+    public = ctx.get_public_repo()
+
+    cp(f"Creating PR: {format_repo(fork)}/main -> {format_repo(public)}/main")
+
+    # create a PR from fork/main to public/main
+    pr = public.create_pull(
+        title=title,
+        body=body,
+        base="main",
+        head=f"{fork.owner.login}:main",
+        maintainer_can_modify=True,
+    )
+
+    cp(f"✅  Created PR: [cyan link={pr.url}]{pr.title} #{pr.number}[/cyan link]")

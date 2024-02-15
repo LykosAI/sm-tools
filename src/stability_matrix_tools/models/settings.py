@@ -29,9 +29,32 @@ class EnvSettings(BaseSettings):
     # debug
     verbose: bool = False
 
+    @staticmethod
+    def format_repo_to_ssh(repo: str) -> str:
+        repo = repo.replace("https://github.com/", "git@github.com:")
+
+        if not repo.endswith(".git"):
+            repo += ".git"
+
+        return repo
+
+    @property
+    def git_repo_private_ssh(self) -> str:
+        return self.format_repo_to_ssh(self.git_repo_private)
+
+    @property
+    def git_repo_fork_ssh(self) -> str:
+        return self.format_repo_to_ssh(self.git_repo_fork)
+
+    @property
+    def git_repo_public_ssh(self) -> str:
+        return self.format_repo_to_ssh(self.git_repo_public)
+
     @property
     def cdn_root_secure(self) -> str:
-        return urljoin(self.cdn_root, self.b2_bucket_secure_name.replace("lykos-", "", 1))
+        return urljoin(
+            self.cdn_root, self.b2_bucket_secure_name.replace("lykos-", "", 1)
+        )
 
     class Config:
         env_file = dotenv.find_dotenv(usecwd=True)

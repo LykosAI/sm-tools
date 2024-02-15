@@ -9,5 +9,6 @@ class GitProcess:
 
     def run_cmd(self, cmd: str, *args: str):
         """Run a command and return the output."""
-        return subprocess.check_output([self.process_path, cmd, *args], cwd=self.cwd).decode("utf-8")
-
+        return subprocess.check_output(
+            [self.process_path, cmd, *args], cwd=self.cwd, shell=True
+        ).decode("utf-8")
