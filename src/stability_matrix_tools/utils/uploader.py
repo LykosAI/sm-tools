@@ -3,10 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import b2sdk.exception as b2_exception
-import b2sdk.file_version
-from b2sdk.progress import AbstractProgressListener
-from b2sdk.v2 import B2Api, InMemoryAccountInfo
+import b2sdk.v2.exception as b2_exception
+from b2sdk.v2 import AbstractProgressListener, B2Api, InMemoryAccountInfo, DownloadVersion
 
 
 class Uploader:
@@ -21,7 +19,7 @@ class Uploader:
 
         self.bucket = self.api.get_bucket_by_name(bucket_name)
 
-    def find_file(self, b2_path: str) -> b2sdk.file_version.DownloadVersion | None:
+    def find_file(self, b2_path: str) -> DownloadVersion | None:
         """Searches for a file with the given bucket path."""
         # Try to download
         try:
@@ -51,7 +49,7 @@ class Uploader:
             raise RuntimeError(f"Could not upload file: {e}")
 
     @staticmethod
-    def delete_file(file_version: b2sdk.file_version.DownloadVersion):
+    def delete_file(file_version: DownloadVersion):
         """Deletes a file from the B2 bucket."""
         try:
             return file_version.delete()
