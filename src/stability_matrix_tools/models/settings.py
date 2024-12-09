@@ -57,7 +57,7 @@ class EnvSettings(BaseSettings):
         )
 
     class Config:
-        env_file = dotenv.find_dotenv(usecwd=True)
+        env_file = dotenv.find_dotenv(filename=".sm-tools.env", usecwd=True) or dotenv.find_dotenv()
         env_prefix = "sm_"
 
 

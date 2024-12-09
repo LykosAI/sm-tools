@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from b2sdk.progress import AbstractProgressListener
+from b2sdk.v2 import AbstractProgressListener
 from rich.progress import Progress
 
 
