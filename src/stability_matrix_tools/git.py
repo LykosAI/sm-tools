@@ -8,70 +8,82 @@ from github.Commit import Commit
 from github.Repository import Repository
 from rich import print as cp
 from typer import Option
+from typing import NamedTuple
 from typing_extensions import Annotated
 
 from stability_matrix_tools.models.keyring_config import ConfigKey, KeyringConfig
 from stability_matrix_tools.models.settings import env
+from stability_matrix_tools.utils.git_context import GithubContext
 from stability_matrix_tools.utils.git_process import GitProcess
 
 app = typer.Typer(no_args_is_help=True)
 
 ConfirmType = Annotated[bool, Option("--yes", "-y", help="Confirm")]
 
+class RepoBranch(NamedTuple):
+    repo: str
+    branch: str
 
-class GitContext:
-    def __init__(self):
-        """Initialize a new GitContext."""
-        cfg = KeyringConfig.load_from_keyring()
-        token = cfg.get_with_prompt(ConfigKey.GITHUB_TOKEN)
+    @property
+    def formatted_repo(self):
+        return format_repo(self.repo)
 
-        self.gh = Github(auth=Auth.Token(token))
-        self.gh_user = self.gh.get_user()
+    def __str__(self):
+        return f"{format_repo(self.repo)}/{self.branch}"
 
-    def get_private_repo(self):
-        return self.gh.get_repo(
-            env.git_repo_private.removeprefix("https://github.com/"), lazy=True
-        )
+RE_REPO_BRANCH = re.compile(r"""
+(
+  (?:
+    # Match a well-formed git repo URI
+    (?:git@|https?://)(?P<host>[\w.-]+)[:/](?P<user>[\w.-]+)/(?P<repo>[\w.-]+)(?:\.git)?
+  )
+  |
+  # Otherwise, capture a plain string repo preset
+  (?P<preset>\w+)
+)
+/
+# Capture the branch name
+(?P<branch>[\w.-]+)
+""", re.VERBOSE)
 
-    def get_fork_repo(self):
-        return self.gh.get_repo(
-            env.git_repo_fork.removeprefix("https://github.com/"), lazy=True
-        )
+REPO_PRESETS = {
+    "private": env.git_repo_private,
+    "fork": env.git_repo_fork,
+    "public": env.git_repo_public
+}
 
-    def get_public_repo(self):
-        return self.gh.get_repo(
-            env.git_repo_public.removeprefix("https://github.com/"), lazy=True
-        )
-
-    def get_repo_from_url(self, url: str):
-        result = re.match(r"(?:https?://github.com/)?(.+?)/(.+?)(?:\.git)?$", url)
-        # Only get the first 2 groups
-        owner, name = result.groups()[:2]
-        return self.gh.get_repo(f"{owner}/{name}", lazy=True)
-
-    @staticmethod
-    def compare(
-        base_repo: Repository, base: Commit, head_repo: Repository, head: Commit
-    ):
-        head_part = f"{head_repo.owner.login}:{head_repo.name}:{head.sha}"
-        return base_repo.compare(base.sha, head_part)
-
-
-def format_repo(repo: Repository) -> str:
-    return repo.url.removeprefix("https://github.com/")
-
-
-@app.command()
-def auth():
-    """Test GitHub authentication."""
-    ctx = GitContext()
-
-    cp(f"Authenticated with GitHub as: {ctx.gh_user.login}")
+def try_match_repo_branch(repo_branch: str) -> RepoBranch | None:
+    if match := RE_REPO_BRANCH.match(repo_branch):
+        if not match.group("branch"):
+            return None
+        if host := match.group("host"):
+            return RepoBranch(repo=host, branch=match.group("branch"))
+        if preset := match.group("preset"):
+            # Check presets
+            if resolved_preset := REPO_PRESETS.get(preset):
+                return RepoBranch(repo=resolved_preset, branch=match.group("branch"))
+            else:
+                return None
+    return None
 
 
-def pr_merge_branch(repo_url: str, from_branch: str, to_branch: str):
+def format_repo(repo: Repository | str) -> str:
+    if isinstance(repo, Repository):
+        return repo.url.removeprefix("https://github.com/")
+    elif isinstance(repo, str):
+        if preset := REPO_PRESETS.get(repo):
+            return preset
+        else:
+            repo_url = repo
+            repo_url = repo_url.removeprefix("https://github.com/")
+            return repo_url
+
+    raise ValueError(f"Invalid repo type: {type(repo)}")
+
+
+def github_pr_merge_branch(repo_url: str, from_branch: str, to_branch: str):
     """Creates a PR to merge a repo's branch into another branch."""
-    ctx = GitContext()
+    ctx = GithubContext()
 
     repo = ctx.get_repo_from_url(repo_url)
     repo_str = format_repo(repo)
@@ -100,38 +112,99 @@ def pr_merge_branch(repo_url: str, from_branch: str, to_branch: str):
 
     cp(f"✅  Created PR: [cyan link={pr.url}]{pr.title} #{pr.number}[/cyan link]")
 
+def git_pr_merge_repo_branch(source: RepoBranch, target: RepoBranch):
+    """Creates a PR to merge a repo's branch into another repo's branch."""
+
+    # Clone the target
+    with tempfile.TemporaryDirectory() as target_repo_dir:
+        git = GitProcess(target_repo_dir)
+
+        cp(f"Cloning target repo: {target.repo}")
+        git.run_cmd("clone", target.repo, ".")
+
+        cp(f"Checking out branch: {target.branch}")
+        git.run_cmd("checkout", target.branch)
+
+        target_sha = git.run_cmd("rev-parse", target.branch).strip()
+
+        # Add the source repo as a remote
+        cp(f"Adding source repo as remote: {source.repo}")
+        git.run_cmd("remote", "add", "source", source.repo)
+
+        cp(f"Fetching source branch: {source.branch}")
+        git.run_cmd("fetch", "source", source.branch)
+
+        source_sha = git.run_cmd("rev-parse", f"source/{source.branch}").strip()
+
+        # Create a merge branch in the target repo
+        merge_branch_name = f"merge-{source}-to-{target.branch}-{source_sha[:7]}"
+
+        cp(f"Creating branch: {merge_branch_name} from {source}/{source.branch} @ {source_sha[:7]}")
+        git.run_cmd("checkout", "-b", merge_branch_name, f"source/{source.branch}")
+
+        # Push the merge branch to the target repo
+        cp(f"Pushing branch to target repo: {target.repo}")
+        git.run_cmd("push", "origin", merge_branch_name)
+
+    # Create PR
+    cp(f"Creating PR: {source}/{merge_branch_name} -> {target}")
+    gh_ctx = GithubContext()
+    target_repo = gh_ctx.get_repo_from_url(target.repo)
+
+    pr = target_repo.create_pull(
+        title=f"Merge {source} to {target.branch}",
+        body="",
+        base=target.branch,
+        head=merge_branch_name,
+    )
+
+    cp(f"✅  Created PR: [cyan link={pr.url}]{pr.title} #{pr.number}[/cyan link]")
 
 @app.command()
-def main_to_dev(repo_url: str):
-    """Creates a PR to merge a repo's main branch into dev branch."""
-    pr_merge_branch(repo_url, "main", "dev")
+def pr_branches(from_repo_branch: Annotated[str, Option("--from")], to_repo_branch: Annotated[str, Option("--to")]):
+    """Creates a PR to merge a repo's branch into another branch."""
+    if not (from_match := try_match_repo_branch(from_repo_branch)):
+        raise typer.BadParameter(f"Invalid parameter format '{from_repo_branch}'")
+
+    if not (to_match := try_match_repo_branch(to_repo_branch)):
+        raise typer.BadParameter(f"Invalid parameter format '{to_repo_branch}'")
+
+    # If same repo, use the GitHub method
+    if from_match.repo == to_match.repo:
+        github_pr_merge_branch(from_match.repo, from_match.branch, to_match.branch)
+    # Otherwise need to do manual git PR
+    else:
+        git_pr_merge_repo_branch(from_match, to_match)
 
 
 @app.command()
-def dev_to_main(repo_url: str):
-    """Creates a PR to merge a repo's main branch into dev branch."""
-    pr_merge_branch(repo_url, "dev", "main")
+def pr_fork_to_public(title: str, body: str = ""):
+    """Creates a PR to merge a fork's main branch into public/main."""
+    ctx = GithubContext()
 
+    fork = ctx.get_fork_repo()
+    public = ctx.get_public_repo()
+
+    cp(f"Creating PR: {format_repo(fork)}/main -> {format_repo(public)}/main")
+
+    # create a PR from fork/main to public/main
+    pr = public.create_pull(
+        title=title,
+        body=body,
+        base="main",
+        head=f"{fork.owner.login}:main",
+        maintainer_can_modify=True,
+    )
+
+    cp(f"✅  Created PR: [cyan link={pr.url}]{pr.title} #{pr.number}[/cyan link]")
 
 @app.command()
-def private_main_to_dev():
-    """Creates a PR to merge private/main into private/dev."""
-    main_to_dev(env.git_repo_private)
-
-
-@app.command()
-def private_dev_to_main():
-    """Creates a PR to merge private/dev into private/main."""
-    dev_to_main(env.git_repo_private)
-
-
-@app.command()
-def private_to_fork(
+def push_private_to_fork(
     new_tag: Annotated[str, typer.Option("--new-tag")] = "",
     dry_run: bool = False,
     confirm: ConfirmType = False,
 ):
-    """Creates a PR to merge private/main into fork/main."""
+    """Pushes private/main into fork/main."""
 
     # Clone the private repo and add the fork as a remote
     with tempfile.TemporaryDirectory() as private_repo_dir:
@@ -172,7 +245,37 @@ def private_to_fork(
 
 
 @app.command()
-def private_tags_to_public():
+def merge_public_to_fork(
+    dry_run: bool = False,
+    confirm: ConfirmType = False,
+):
+    """Merges public/main into fork/main."""
+
+    with tempfile.TemporaryDirectory() as temp_repo_dir:
+        git = GitProcess(temp_repo_dir)
+
+        cp("Cloning fork repo", env.git_repo_fork)
+        git.run_cmd("clone", env.git_repo_fork, ".")
+
+        cp("Adding public as remote")
+        git.run_cmd("remote", "add", "public", env.git_repo_public)
+        git.run_cmd("fetch", "public")
+
+        cp("Checking out main")
+        git.run_cmd("checkout", "main")
+
+        cp("Merging public to main")
+        git.run_cmd("merge", "public/main")
+
+        if dry_run or (not confirm and not typer.confirm("Confirm?")):
+            raise typer.Abort()
+
+        cp("Pushing to fork")
+        git.run_cmd("push", "origin", "main")
+
+
+@app.command()
+def push_tags_private_to_public():
     with tempfile.TemporaryDirectory() as private_repo_dir:
         git = GitProcess(private_repo_dir)
 
@@ -187,22 +290,8 @@ def private_tags_to_public():
 
 
 @app.command()
-def fork_to_public(title: str, body: str = ""):
-    """Creates a PR to merge a fork's main branch into public/main."""
-    ctx = GitContext()
+def github_auth():
+    """Test GitHub authentication."""
+    ctx = GithubContext()
 
-    fork = ctx.get_fork_repo()
-    public = ctx.get_public_repo()
-
-    cp(f"Creating PR: {format_repo(fork)}/main -> {format_repo(public)}/main")
-
-    # create a PR from fork/main to public/main
-    pr = public.create_pull(
-        title=title,
-        body=body,
-        base="main",
-        head=f"{fork.owner.login}:main",
-        maintainer_can_modify=True,
-    )
-
-    cp(f"✅  Created PR: [cyan link={pr.url}]{pr.title} #{pr.number}[/cyan link]")
+    cp(f"Authenticated with GitHub as: {ctx.gh_user.login}")
