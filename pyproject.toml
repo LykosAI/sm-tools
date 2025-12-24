@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "stability-matrix-tools"
-version = "0.3.3"
+version = "0.3.4"
 description = ""
 authors = ["Ionite <dev@ionite.io>"]
 readme = "README.md"
@@ -19,6 +19,7 @@ pyperclip = "^1.8.2"
 blake3 = "^0.4.1"
 pygithub = "^2.1.1"
 yaspin = "^3.0.1"
+click = "8.1.7" # Pinned to avoid compatibility issues with Typer
 
 [tool.poetry.scripts]
 sm-tools = "stability_matrix_tools.main:app"
