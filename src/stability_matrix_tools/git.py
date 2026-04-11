@@ -1,6 +1,7 @@
 """Git routines and tools."""
 import re
 import tempfile
+from subprocess import CalledProcessError
 
 import typer
 from github import Auth, Github
@@ -81,41 +82,81 @@ def format_repo(repo: Repository | str) -> str:
     raise ValueError(f"Invalid repo type: {type(repo)}")
 
 
-def github_pr_merge_branch(repo_url: str, from_branch: str, to_branch: str):
-    """Creates a PR to merge a repo's branch into another branch."""
+def _make_merge_branch_name(source: RepoBranch, target: RepoBranch, source_sha: str) -> str:
+    """Build the ephemeral branch name for a merge PR."""
+    if source.repo == target.repo:
+        return f"merge-{source.branch}-to-{target.branch}-{source_sha[:7]}"
+    # Cross-repo: include the source's owner/name slug so the branch is unambiguous
+    # inside the target repo (which may receive merges from multiple sources).
+    source_slug = format_repo(source.repo).replace("/", "-")
+    return f"merge-{source_slug}-{source.branch}-to-{target.branch}-{source_sha[:7]}"
+
+
+def _make_pr_title(source: RepoBranch, target: RepoBranch) -> str:
+    if source.repo == target.repo:
+        return f"Merge {source.branch} into {target.branch}"
+    return f"Merge {source} into {target.branch}"
+
+
+def _make_pr_body(source: RepoBranch, target: RepoBranch, source_sha: str) -> str:
+    return (
+        f"Merges `{source}` into `{target}` @ `{source_sha[:7]}`.\n\n"
+        f"_Created by `sm-tools git pr-branches`._"
+    )
+
+
+def _pr_merge_same_repo(source: RepoBranch, target: RepoBranch):
+    """Creates a merge PR when source and target live in the same repo (GitHub API only)."""
     ctx = GithubContext()
 
-    repo = ctx.get_repo_from_url(repo_url)
+    repo = ctx.get_repo_from_url(target.repo)
     repo_str = format_repo(repo)
 
-    source = repo.get_branch(from_branch)
+    src_branch = repo.get_branch(source.branch)
+    source_sha = src_branch.commit.sha
 
-    # create a new branch from private/main
-    merge_branch_name = f"merge-{from_branch}-to-{to_branch}-{source.commit.sha[:7]}"
-    repo.create_git_ref(
-        ref=f"refs/heads/{merge_branch_name}",
-        sha=source.commit.sha,
-    )
+    # Check that there's actually something to merge. GitHub compare uses base...head;
+    # total_commits is the number of commits in `head` that are not in `base`.
+    comparison = repo.compare(target.branch, source.branch)
+    if comparison.total_commits == 0:
+        cp(
+            f"[yellow]Nothing to merge: {repo_str}/{target.branch} already contains "
+            f"{repo_str}/{source.branch} @ {source_sha[:7]}[/yellow]"
+        )
+        return
+
+    cp(f"[dim]{comparison.total_commits} commit(s) ahead of {target.branch}[/dim]")
+
+    merge_branch_name = _make_merge_branch_name(source, target, source_sha)
 
     cp(
-        f"Creating branch: {repo_str}/{merge_branch_name} from {repo_str}/{from_branch} @ {source.commit.sha[:7]}"
+        f"Creating branch: {repo_str}/{merge_branch_name} from "
+        f"{repo_str}/{source.branch} @ {source_sha[:7]}"
     )
-    cp(f"Creating PR: {repo_str}/{merge_branch_name} -> {repo_str}/{to_branch}")
+    repo.create_git_ref(
+        ref=f"refs/heads/{merge_branch_name}",
+        sha=source_sha,
+    )
 
-    # create a PR from private/main to private/dev
+    cp(f"Creating PR: {repo_str}/{merge_branch_name} -> {repo_str}/{target.branch}")
     pr = repo.create_pull(
-        title="Merge main to dev",
-        body="",
-        base=to_branch,
+        title=_make_pr_title(source, target),
+        body=_make_pr_body(source, target, source_sha),
+        base=target.branch,
         head=merge_branch_name,
     )
 
-    cp(f"✅  Created PR: [cyan link={pr.url}]{pr.title} #{pr.number}[/cyan link]")
+    cp(f"✅  Created PR: [cyan link={pr.html_url}]{pr.title} #{pr.number}[/cyan link]")
 
-def git_pr_merge_repo_branch(source: RepoBranch, target: RepoBranch):
-    """Creates a PR to merge a repo's branch into another repo's branch."""
 
-    # Clone the target
+def _pr_merge_cross_repo(source: RepoBranch, target: RepoBranch):
+    """Creates a merge PR across two different repos.
+
+    GitHub only allows PRs between branches in the same repository (or between a
+    fork and its upstream). For arbitrary cross-repo merges — e.g. private/main ->
+    fork/main — we clone the target, fetch the source as a remote, push the
+    resulting merge branch to the target, then open the PR inside the target repo.
+    """
     with tempfile.TemporaryDirectory() as target_repo_dir:
         git = GitProcess(target_repo_dir)
 
@@ -127,7 +168,6 @@ def git_pr_merge_repo_branch(source: RepoBranch, target: RepoBranch):
 
         target_sha = git.run_cmd("rev-parse", target.branch).strip()
 
-        # Add the source repo as a remote
         cp(f"Adding source repo as remote: {source.repo}")
         git.run_cmd("remote", "add", "source", source.repo)
 
@@ -136,45 +176,61 @@ def git_pr_merge_repo_branch(source: RepoBranch, target: RepoBranch):
 
         source_sha = git.run_cmd("rev-parse", f"source/{source.branch}").strip()
 
-        # Create a merge branch in the target repo
-        merge_branch_name = f"merge-{source}-to-{target.branch}-{source_sha[:7]}"
+        # Short-circuit if target already contains every commit from source.
+        # merge-base --is-ancestor exits 0 when source_sha is an ancestor of
+        # target_sha (which includes the case where they're equal) and 1 otherwise.
+        try:
+            git.run_cmd("merge-base", "--is-ancestor", source_sha, target_sha)
+            cp(
+                f"[yellow]Nothing to merge: {target} already contains "
+                f"{source} @ {source_sha[:7]}[/yellow]"
+            )
+            return
+        except CalledProcessError:
+            pass  # not an ancestor — there's real work to do
 
-        cp(f"Creating branch: {merge_branch_name} from {source}/{source.branch} @ {source_sha[:7]}")
+        merge_branch_name = _make_merge_branch_name(source, target, source_sha)
+
+        cp(f"Creating branch: {merge_branch_name} from {source} @ {source_sha[:7]}")
         git.run_cmd("checkout", "-b", merge_branch_name, f"source/{source.branch}")
 
-        # Push the merge branch to the target repo
         cp(f"Pushing branch to target repo: {target.repo}")
         git.run_cmd("push", "origin", merge_branch_name)
 
-    # Create PR
-    cp(f"Creating PR: {source}/{merge_branch_name} -> {target}")
+    cp(f"Creating PR: {merge_branch_name} -> {target}")
     gh_ctx = GithubContext()
     target_repo = gh_ctx.get_repo_from_url(target.repo)
 
     pr = target_repo.create_pull(
-        title=f"Merge {source} to {target.branch}",
-        body="",
+        title=_make_pr_title(source, target),
+        body=_make_pr_body(source, target, source_sha),
         base=target.branch,
         head=merge_branch_name,
     )
 
-    cp(f"✅  Created PR: [cyan link={pr.url}]{pr.title} #{pr.number}[/cyan link]")
+    cp(f"✅  Created PR: [cyan link={pr.html_url}]{pr.title} #{pr.number}[/cyan link]")
 
 @app.command()
-def pr_branches(from_repo_branch: Annotated[str, Option("--from")], to_repo_branch: Annotated[str, Option("--to")]):
-    """Creates a PR to merge a repo's branch into another branch."""
+def pr_branches(
+    from_repo_branch: Annotated[str, Option("--from")],
+    to_repo_branch: Annotated[str, Option("--to")],
+):
+    """Creates a PR to merge one repo/branch into another repo/branch.
+
+    Accepts either full git URLs or preset keys (`private`, `fork`, `public`)
+    from the environment, e.g. `--from private/main --to private/dev` or
+    `--from private/main --to fork/main`.
+    """
     if not (from_match := try_match_repo_branch(from_repo_branch)):
         raise typer.BadParameter(f"Invalid parameter format '{from_repo_branch}'")
 
     if not (to_match := try_match_repo_branch(to_repo_branch)):
         raise typer.BadParameter(f"Invalid parameter format '{to_repo_branch}'")
 
-    # If same repo, use the GitHub method
     if from_match.repo == to_match.repo:
-        github_pr_merge_branch(from_match.repo, from_match.branch, to_match.branch)
-    # Otherwise need to do manual git PR
+        _pr_merge_same_repo(from_match, to_match)
     else:
-        git_pr_merge_repo_branch(from_match, to_match)
+        _pr_merge_cross_repo(from_match, to_match)
 
 
 @app.command()
