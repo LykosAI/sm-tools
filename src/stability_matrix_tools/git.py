@@ -235,7 +235,12 @@ def pr_branches(
 
 @app.command()
 def pr_fork_to_public(title: str, body: str = ""):
-    """Creates a PR to merge a fork's main branch into public/main."""
+    """Creates a PR to merge a fork's main branch into public/main.
+
+    Uses GitHub's native fork-PR mechanism, which works because `fork` is a real
+    GitHub fork of `public`. The resulting PR shows up on public's Pull Requests
+    tab with the usual fork-PR affordances.
+    """
     ctx = GithubContext()
 
     fork = ctx.get_fork_repo()
@@ -252,7 +257,22 @@ def pr_fork_to_public(title: str, body: str = ""):
         maintainer_can_modify=True,
     )
 
-    cp(f"✅  Created PR: [cyan link={pr.url}]{pr.title} #{pr.number}[/cyan link]")
+    cp(f"✅  Created PR: [cyan link={pr.html_url}]{pr.title} #{pr.number}[/cyan link]")
+
+
+@app.command()
+def pr_fork_to_private():
+    """Creates a PR to merge fork/main into private/main.
+
+    Symmetric with `pr_fork_to_public` but takes the cross-repo path via
+    `_pr_merge_cross_repo`, since `fork` is a GitHub fork of `public`, not of
+    `private` — so we can't rely on a native fork PR here. The helper clones
+    `private`, fetches `fork/main`, pushes a merge branch to `private`, and
+    opens the PR inside `private` for team review.
+    """
+    source = RepoBranch(repo=env.git_repo_fork, branch="main")
+    target = RepoBranch(repo=env.git_repo_private, branch="main")
+    _pr_merge_cross_repo(source, target)
 
 @app.command()
 def push_private_to_fork(
@@ -343,6 +363,93 @@ def push_tags_private_to_public():
 
         cp("Pushing tags to public")
         git.run_cmd("push", "public", "--tags")
+
+
+@app.command()
+def release(
+    new_tag: Annotated[str, typer.Option("--new-tag")],
+    title: str = "",
+    body: str = "",
+    dry_run: bool = False,
+    confirm: ConfirmType = False,
+):
+    """Full outbound release flow: private -> fork -> public.
+
+    Chains three existing primitives:
+      1. `push_private_to_fork` — stage commits and the release tag on the fork.
+      2. `pr_fork_to_public` — open the public release PR (manual review/merge).
+      3. `push_tags_private_to_public` — push the tag to public so it's visible
+         even while the PR is still under review.
+
+    The PR is opened but **not** merged programmatically. A human always merges
+    public releases, using "Create a merge commit" on github.com (never squash
+    or rebase — see docs/git-flow.md for why).
+    """
+    pr_title = title or f"Release {new_tag}"
+
+    cp(f"[bold]Release flow[/bold] (tag: [cyan]{new_tag}[/cyan])")
+    cp(f"  1. push private/main -> fork/main (tag {new_tag})")
+    cp(f"  2. open PR fork/main -> public/main ({pr_title!r})")
+    cp(f"  3. push tag {new_tag} from private -> public")
+
+    if dry_run:
+        cp("[yellow]Dry run — not executing.[/yellow]")
+        return
+
+    if not confirm and not typer.confirm("Proceed with release?"):
+        raise typer.Abort()
+
+    cp("\n[bold cyan]Step 1/3[/bold cyan] — push private/main -> fork/main")
+    push_private_to_fork(new_tag=new_tag, dry_run=False, confirm=True)
+
+    cp("\n[bold cyan]Step 2/3[/bold cyan] — open PR fork/main -> public/main")
+    pr_fork_to_public(title=pr_title, body=body)
+
+    cp("\n[bold cyan]Step 3/3[/bold cyan] — push tags private -> public")
+    push_tags_private_to_public()
+
+    cp(
+        f"\n✅  [bold green]Release {new_tag} staged.[/bold green] "
+        f"Review and merge the public PR to publish."
+    )
+
+
+@app.command()
+def sync_contributions(
+    dry_run: bool = False,
+    confirm: ConfirmType = False,
+):
+    """Inbound contribution sync: public -> fork -> private.
+
+    Chains two existing primitives:
+      1. `merge_public_to_fork` — bring public contributions onto the shuttle.
+      2. `pr_fork_to_private` — open a PR into private for team review.
+
+    The follow-on downmerge from `private/main` to `private/dev` is
+    intentionally left out — timing is case-by-case. Run
+    `sm-tools git pr-branches --from private/main --to private/dev` when ready.
+    """
+    cp("[bold]Contribution sync flow[/bold]")
+    cp("  1. merge public/main -> fork/main")
+    cp("  2. open PR fork/main -> private/main")
+
+    if dry_run:
+        cp("[yellow]Dry run — not executing.[/yellow]")
+        return
+
+    if not confirm and not typer.confirm("Proceed with contribution sync?"):
+        raise typer.Abort()
+
+    cp("\n[bold cyan]Step 1/2[/bold cyan] — merge public/main -> fork/main")
+    merge_public_to_fork(dry_run=False, confirm=True)
+
+    cp("\n[bold cyan]Step 2/2[/bold cyan] — open PR fork/main -> private/main")
+    pr_fork_to_private()
+
+    cp(
+        "\n✅  [bold green]Contribution sync staged.[/bold green] "
+        "Review and merge the PR into private/main."
+    )
 
 
 @app.command()

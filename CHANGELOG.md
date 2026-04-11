@@ -35,6 +35,43 @@ All notable changes to `sm-tools` are documented here. Format follows
 - `GithubContext` extracted to `stability_matrix_tools.utils.git_context` so it can
   be reused outside `git.py`.
 
+- **`git pr-fork-to-private` command.** Symmetric with the existing
+  `pr_fork_to_public`, but routes through the cross-repo `_pr_merge_cross_repo`
+  helper — since the fork is a GitHub fork of `public`, not of `private`, there
+  is no native fork-PR mechanism for this direction. Clones `private`, fetches
+  `fork/main` as a remote, pushes a merge branch, and opens the PR inside
+  `private` for team review.
+
+- **`git release` aggregator.** Runs the full outbound release flow in one
+  command:
+
+  ```shell
+  sm-tools git release --new-tag v2.15.0 --title "Release v2.15.0"
+  ```
+
+  Chains `push_private_to_fork(new_tag=…)` → `pr_fork_to_public(title, body)` →
+  `push_tags_private_to_public()`. A single confirmation prompt gates the whole
+  flow. The public PR is opened but **not** merged programmatically — public
+  releases always get a human review, and must be merged as a merge commit
+  (never squash or rebase — see `docs/git-flow.md`).
+
+- **`git sync-contributions` aggregator.** Runs the full inbound contribution
+  sync in one command:
+
+  ```shell
+  sm-tools git sync-contributions
+  ```
+
+  Chains `merge_public_to_fork()` → `pr_fork_to_private()`. The follow-on
+  downmerge `private/main → private/dev` is deliberately left out — timing is
+  case-by-case, run `pr-branches --from private/main --to private/dev` when
+  ready.
+
+- Planning document added at `docs/git-flow.md` capturing the three-repo model,
+  the flow matrix, tag placement policy (merge commits only — squash/rebase on
+  release PRs would leave tags pointing at dangling commits in `public`), and
+  the Phase 1 / Phase 2 / non-goals breakdown that drove this release.
+
 ### Changed
 
 - Unified the same-repo and cross-repo PR helpers behind a single `(source, target)`
