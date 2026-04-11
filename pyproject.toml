@@ -20,6 +20,8 @@ blake3 = "^0.4.1"
 pygithub = "^2.1.1"
 yaspin = "^3.0.1"
 click = "8.1.7" # Pinned to avoid compatibility issues with Typer
+typing-extensions = "^4.15.0"
+rich = "^14.3.4"
 
 [tool.poetry.scripts]
 sm-tools = "stability_matrix_tools.main:app"
