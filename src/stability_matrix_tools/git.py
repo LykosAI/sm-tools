@@ -47,7 +47,7 @@ RE_REPO_BRANCH = re.compile(r"""
 (?P<branch>[\w.-]+)
 """, re.VERBOSE)
 
-REPO_PRESETS = {
+REPO_PRESETS: dict[str, str] = {
     "private": env.git_repo_private,
     "fork": env.git_repo_fork,
     "public": env.git_repo_public
