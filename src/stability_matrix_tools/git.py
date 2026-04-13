@@ -300,11 +300,8 @@ def push_private_to_fork(
         cp(f"Current main commit sha: {main_sha[:7]}")
 
         if new_tag:
-            cp(f"Creating tag: {new_tag}")
+            cp(f"Creating tag locally: {new_tag}")
             git.run_cmd("tag", "-a", new_tag, "-m", '""', main_sha)
-
-            cp(f"Pushing tag to origin: {new_tag}")
-            git.run_cmd("push", "origin", new_tag)
 
         cp("Pulling fork to main")
         git.run_cmd("pull", "origin")
@@ -313,7 +310,14 @@ def push_private_to_fork(
         # git.run_cmd("-c", "pull.rebase=false", "pull", "fork", "main")
 
         if dry_run or (not confirm and not typer.confirm("Confirm?")):
+            # In dry-run mode, the tempdir (and any local tag created above) is
+            # cleaned up by the TemporaryDirectory context manager on the way
+            # out, so no remote side effects remain.
             raise typer.Abort()
+
+        if new_tag:
+            cp(f"Pushing tag to origin: {new_tag}")
+            git.run_cmd("push", "origin", new_tag)
 
         cp("Pushing to fork")
         git.run_cmd("push", "fork", "main")
@@ -351,7 +355,10 @@ def merge_public_to_fork(
 
 
 @app.command()
-def push_tags_private_to_public():
+def push_tags_private_to_public(
+    dry_run: bool = False,
+    confirm: ConfirmType = False,
+):
     with tempfile.TemporaryDirectory() as private_repo_dir:
         git = GitProcess(private_repo_dir)
 
@@ -360,6 +367,9 @@ def push_tags_private_to_public():
 
         cp(f"Adding public as remote: {env.git_repo_public}")
         git.run_cmd("remote", "add", "public", env.git_repo_public)
+
+        if dry_run or (not confirm and not typer.confirm("Confirm?")):
+            raise typer.Abort()
 
         cp("Pushing tags to public")
         git.run_cmd("push", "public", "--tags")
@@ -373,45 +383,113 @@ def release(
     dry_run: bool = False,
     confirm: ConfirmType = False,
 ):
-    """Full outbound release flow: private -> fork -> public.
+    """Outbound release flow: private -> fork -> public (stage + PR only).
 
-    Chains three existing primitives:
+    Chains two primitives:
       1. `push_private_to_fork` — stage commits and the release tag on the fork.
       2. `pr_fork_to_public` — open the public release PR (manual review/merge).
-      3. `push_tags_private_to_public` — push the tag to public so it's visible
-         even while the PR is still under review.
 
-    The PR is opened but **not** merged programmatically. A human always merges
-    public releases, using "Create a merge commit" on github.com (never squash
-    or rebase — see docs/git-flow.md for why).
+    The tag is pushed to `fork` in step 1 (so fork mirrors private's tag state)
+    but **not** to `public` — that's intentional. Pushing the tag to public
+    before the PR merges would leave a dangling tag on public pointing at a
+    commit that isn't yet on public/main, and if the PR gets rejected or
+    abandoned, the stale tag is awkward to clean up.
+
+    After the public PR has been merged (as a merge commit — see
+    docs/git-flow.md), run `sm-tools git release-finalize` to push the tag
+    from private to public.
+
+    With `--dry-run`, step 1 still runs end-to-end in its tempdir (including
+    the local tag creation) but aborts before any remote push, and step 2 is
+    printed as a "would do" line with no remote side effects.
     """
     pr_title = title or f"Release {new_tag}"
 
-    cp(f"[bold]Release flow[/bold] (tag: [cyan]{new_tag}[/cyan])")
+    header = "[bold]Release flow[/bold]"
+    if dry_run:
+        header += " [yellow](dry run)[/yellow]"
+    cp(f"{header} (tag: [cyan]{new_tag}[/cyan])")
     cp(f"  1. push private/main -> fork/main (tag {new_tag})")
     cp(f"  2. open PR fork/main -> public/main ({pr_title!r})")
-    cp(f"  3. push tag {new_tag} from private -> public")
 
-    if dry_run:
-        cp("[yellow]Dry run — not executing.[/yellow]")
-        return
-
-    if not confirm and not typer.confirm("Proceed with release?"):
+    if not dry_run and not confirm and not typer.confirm("Proceed with release?"):
         raise typer.Abort()
 
-    cp("\n[bold cyan]Step 1/3[/bold cyan] — push private/main -> fork/main")
-    push_private_to_fork(new_tag=new_tag, dry_run=False, confirm=True)
+    cp("\n[bold cyan]Step 1/2[/bold cyan] — push private/main -> fork/main")
+    try:
+        push_private_to_fork(new_tag=new_tag, dry_run=dry_run, confirm=True)
+    except typer.Abort:
+        if not dry_run:
+            raise
+        # Expected: push_private_to_fork raises Abort after local tag creation
+        # in dry-run mode. The tempdir (and local tag) is cleaned up on exit.
 
-    cp("\n[bold cyan]Step 2/3[/bold cyan] — open PR fork/main -> public/main")
-    pr_fork_to_public(title=pr_title, body=body)
+    cp("\n[bold cyan]Step 2/2[/bold cyan] — open PR fork/main -> public/main")
+    if dry_run:
+        cp(
+            f"[yellow][dry run][/yellow] would open PR: "
+            f"fork/main -> public/main ({pr_title!r})"
+        )
+    else:
+        pr_fork_to_public(title=pr_title, body=body)
 
-    cp("\n[bold cyan]Step 3/3[/bold cyan] — push tags private -> public")
-    push_tags_private_to_public()
+    if dry_run:
+        cp(
+            "\n✅  [bold green]Dry run complete.[/bold green] "
+            "No remote side effects."
+        )
+    else:
+        cp(
+            f"\n✅  [bold green]Release {new_tag} staged.[/bold green] "
+            f"Review and merge the public PR as a merge commit, then run "
+            f"[cyan]sm-tools git release-finalize[/cyan] to push the tag to public."
+        )
 
-    cp(
-        f"\n✅  [bold green]Release {new_tag} staged.[/bold green] "
-        f"Review and merge the public PR to publish."
-    )
+
+@app.command()
+def release_finalize(
+    dry_run: bool = False,
+    confirm: ConfirmType = False,
+):
+    """Finalize a release after the public PR has been merged.
+
+    Pushes tags from `private` to `public` via `push_tags_private_to_public`.
+    Run this **after** the fork -> public release PR opened by
+    `sm-tools git release` has been merged on github.com (as a merge commit).
+
+    Tag push is deferred to this step so that tags only land on public after
+    the tagged commit has actually been reviewed and merged — no dangling
+    tags on public if a release PR gets rejected or abandoned.
+    """
+    header = "[bold]Release finalize[/bold]"
+    if dry_run:
+        header += " [yellow](dry run)[/yellow]"
+    cp(header)
+    cp("  1. push tags private -> public")
+
+    if not dry_run and not confirm and not typer.confirm(
+        "Proceed? Only run this AFTER the public release PR has been merged."
+    ):
+        raise typer.Abort()
+
+    cp("\n[bold cyan]Step 1/1[/bold cyan] — push tags private -> public")
+    try:
+        push_tags_private_to_public(dry_run=dry_run, confirm=True)
+    except typer.Abort:
+        if not dry_run:
+            raise
+        # Expected: push_tags_private_to_public raises Abort in dry-run mode.
+
+    if dry_run:
+        cp(
+            "\n✅  [bold green]Dry run complete.[/bold green] "
+            "No remote side effects."
+        )
+    else:
+        cp(
+            "\n✅  [bold green]Release finalized.[/bold green] "
+            "Tags pushed to public."
+        )
 
 
 @app.command()
@@ -428,28 +506,52 @@ def sync_contributions(
     The follow-on downmerge from `private/main` to `private/dev` is
     intentionally left out — timing is case-by-case. Run
     `sm-tools git pr-branches --from private/main --to private/dev` when ready.
+
+    With `--dry-run`, step 1 still runs end-to-end in its tempdir (including
+    the local merge of public/main into fork/main) but aborts before any
+    remote push, and step 2 is printed as a "would do" line with no remote
+    side effects.
     """
-    cp("[bold]Contribution sync flow[/bold]")
+    header = "[bold]Contribution sync flow[/bold]"
+    if dry_run:
+        header += " [yellow](dry run)[/yellow]"
+    cp(header)
     cp("  1. merge public/main -> fork/main")
     cp("  2. open PR fork/main -> private/main")
 
-    if dry_run:
-        cp("[yellow]Dry run — not executing.[/yellow]")
-        return
-
-    if not confirm and not typer.confirm("Proceed with contribution sync?"):
+    if not dry_run and not confirm and not typer.confirm(
+        "Proceed with contribution sync?"
+    ):
         raise typer.Abort()
 
     cp("\n[bold cyan]Step 1/2[/bold cyan] — merge public/main -> fork/main")
-    merge_public_to_fork(dry_run=False, confirm=True)
+    try:
+        merge_public_to_fork(dry_run=dry_run, confirm=True)
+    except typer.Abort:
+        if not dry_run:
+            raise
+        # Expected: merge_public_to_fork raises Abort after local merge in
+        # dry-run mode. The tempdir is cleaned up on exit.
 
     cp("\n[bold cyan]Step 2/2[/bold cyan] — open PR fork/main -> private/main")
-    pr_fork_to_private()
+    if dry_run:
+        cp(
+            "[yellow][dry run][/yellow] would open PR: "
+            "fork/main -> private/main"
+        )
+    else:
+        pr_fork_to_private()
 
-    cp(
-        "\n✅  [bold green]Contribution sync staged.[/bold green] "
-        "Review and merge the PR into private/main."
-    )
+    if dry_run:
+        cp(
+            "\n✅  [bold green]Dry run complete.[/bold green] "
+            "No remote side effects."
+        )
+    else:
+        cp(
+            "\n✅  [bold green]Contribution sync staged.[/bold green] "
+            "Review and merge the PR into private/main."
+        )
 
 
 @app.command()

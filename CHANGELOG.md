@@ -42,18 +42,33 @@ All notable changes to `sm-tools` are documented here. Format follows
   `fork/main` as a remote, pushes a merge branch, and opens the PR inside
   `private` for team review.
 
-- **`git release` aggregator.** Runs the full outbound release flow in one
-  command:
+- **`git release` aggregator.** Stages an outbound release up to the review
+  step:
 
   ```shell
   sm-tools git release --new-tag v2.15.0 --title "Release v2.15.0"
   ```
 
-  Chains `push_private_to_fork(new_tag=…)` → `pr_fork_to_public(title, body)` →
-  `push_tags_private_to_public()`. A single confirmation prompt gates the whole
-  flow. The public PR is opened but **not** merged programmatically — public
-  releases always get a human review, and must be merged as a merge commit
-  (never squash or rebase — see `docs/git-flow.md`).
+  Chains `push_private_to_fork(new_tag=…)` → `pr_fork_to_public(title, body)`.
+  The tag is pushed to `fork` but **not** to `public`. A single confirmation
+  prompt gates the whole flow. The public PR is opened but not merged
+  programmatically — public releases always get a human review, and must be
+  merged as a merge commit (never squash or rebase — see `docs/git-flow.md`).
+
+- **`git release-finalize` command.** Run manually **after** the public
+  release PR opened by `release` has been merged on github.com:
+
+  ```shell
+  sm-tools git release-finalize
+  ```
+
+  Pushes tags from `private` to `public` via `push_tags_private_to_public`.
+  Splitting the tag push out of `release` guarantees tags only land on public
+  when the tagged commit is actually on `public/main`'s history — so an
+  abandoned or rejected release PR never leaves a dangling tag on `public`,
+  and the tag ordering can't accidentally imply "this is the shipped version"
+  before review. The confirm prompt explicitly warns that this should only be
+  run post-merge.
 
 - **`git sync-contributions` aggregator.** Runs the full inbound contribution
   sync in one command:
@@ -83,6 +98,11 @@ All notable changes to `sm-tools` are documented here. Format follows
   - cross-repo via `git merge-base --is-ancestor <source_sha> <target_sha>`
 - Cross-repo merge branch names now slugify the source repo (e.g.
   `merge-ionite34-StabilityMatrix-main-to-main-abc1234`) instead of slashes in the branch name.
+- `push_tags_private_to_public` gained `--dry-run` and `--yes` / `-y` options,
+  matching the other `git` subcommands. In dry-run mode the clone + remote
+  setup still happens in its tempdir but the final `push public --tags` is
+  gated behind the confirm check, so no remote side effects occur. This is
+  what lets `release-finalize --dry-run` exercise the real code path safely.
 
 ### Fixed
 
@@ -93,3 +113,9 @@ All notable changes to `sm-tools` are documented here. Format follows
 - `GitProcess.run_cmd` no longer passes `shell=True` together with an argv list.
   On Windows this routed through `cmd.exe /c` and re-quoted argv, which would have
   broken on any source URL or ref containing shell metacharacters.
+- `push_private_to_fork --dry-run` previously pushed the release tag to the
+  `origin` (private) remote *before* the dry-run check, leaking a real tag on
+  every dry run. The tag is now created locally in the tempdir and only
+  pushed after the confirm/dry-run gate, so `--dry-run` leaves no remote side
+  effects. This same fix is what lets `release --dry-run` exercise step 1
+  end-to-end without touching any remote.
